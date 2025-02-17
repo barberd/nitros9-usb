@@ -135,10 +135,7 @@ entry               equ       *
 
 * Read - read keys if pressed
 * Exit: A = key pressed
-ReadKys             #pshs     cc
-                    #orcc     #IntMasks
-                    lda       #$57
-                    sta       $FF68
+ReadKys             lda       #$57
                     ldu       <D.CCMem            Get VTIO global memory into U
                     pshs      dp
                     leas      -8,s
@@ -255,12 +252,8 @@ nochange@
                     leas      1,s                 get rid of counter
                     bra       nokey@              no keys at all are pressed, return nothing
 repeatkey@
-                    lda       #$3B
-                    sta       $FF68
                     lda       <G.KySame
-                    sta       $FF68
                     lda       <G.LKeyCd
-                    sta       $FF68
                     inc       <G.KySame           flag for repeat key handling in vtio
 foundchange@
                     leas      1,s                 get rid of counter
@@ -335,10 +328,7 @@ finish@             leas      8,s
 * U is VTIO memory (D.CCMem)
 * X is 8 byte buffer for report
 * Returns carry set if no change
-KbdGetReport
-                    lda       #'1                 $31
-                    sta       $FF68
-                    pshs      x,y,u
+KbdGetReport        pshs      x,y,u
                     ldy       <D.USBManMem
                     tst       ,y                  This is USBLock in the USB manager memory area
                     bne       error@              Bail out if usb device is already locked
@@ -369,25 +359,6 @@ KbdGetReport
                   ELSE
                     ldy       >D.USBManSubAddr
                   ENDC
-                    lda       #$37
-                    sta       $FF68
-                    tfr       s,d
-                    sta       $FF68
-                    stb       $FF68
-                    tfr       dp,a
-                    sta       $FF68
-                    pshs      x
-                    ldx       <D.Proc
-                    leax      (P$Alarm+6),x
-                    tfr       x,d
-                    sta       $FF68
-                    stb       $FF68
-                    ldx       <D.Proc
-                    leax      P$Stack,x
-                    tfr       x,d
-                    sta       $FF68
-                    stb       $FF68
-                    puls      x
                   IFGT    Level-1
                     ldd       D.Proc              get curr proc ptr
                     pshs      d                   save on stack
@@ -406,12 +377,7 @@ success@            pshs      cc
                     leas      9,s
                     bra       finish@
 error@              comb
-finish@
-                    pshs      cc
-                    lda       #$13
-                    sta       $FF68
-                    puls      cc
-                    puls      u,x,y,pc
+finish@             puls      u,x,y,pc
 
 * This entry point tests for the F1/F2 function keys on a CoCo 3
 * keyboard.
@@ -495,15 +461,7 @@ finish@             rts
 KbdProbe            pshs      x,y
                     tst       UsbKbd.DeviceId,u
                     bne       error@
-                    lda       #$F0
-                    sta       $FF68
-                    sta       $FF68
-                    sta       $FF68
-                    sta       $FF68
-                    sta       $FF68
-                    sta       $FF68
                     lda       ,y
-                    sta       $FF68
                     sta       UsbKbd.DeviceId,u
                     clr       UsbKbd.DataFlag,u
 * Start looking for endpoint here
@@ -543,9 +501,8 @@ foundendpoint@
                     jsr       USBControlTransfer,y
                     leas      13,s
                     bcc       finish@
-error@              *         Clear               out local memory
-                    lda       #$F1
-                    sta       $FF68
+error@              
+* Clear out local memory
                     clra
                     leax      ,u
                     ldb       #UsbKbd.MemSize
