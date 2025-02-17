@@ -137,9 +137,15 @@ SAS                 set       $10
                     ifne      TC3+KTLR+D4N1+HDII
                     use       scsi.d
                     else
+                    ifne      COCOSDC
                     use       cocosdc.d
                     endc
                     endc
+                    endc
+                    endc
+
+                    ifne      USBMSD
+SDAddr              set       $FF60
                     endc
 
                     ifne      CC3FPGA
@@ -228,11 +234,16 @@ name                fcc       /SD/
                     fcb       '0+ITDRV+$80
                     endc
                     else
+                    ifne      USBMSD
+name                fcc       /U/
+                    fcb       '0+ITDRV+$80
+                    else
 name                fcc       /S/
                     ifne      HB
                     fcs       /H/
                     else
                     fcb       '0+ITDRV+$80
+                    endc
                     endc
                     endc
                     endc
@@ -273,6 +284,10 @@ lldrv               equ       *
                     ifne      CC3FPGA
                     fcs       /llcoco3fpga/
                     fcb       0,0,0
+                    else
+                    ifne      USBMSD
+                    fcs       /llusbmsd/ 
+                    endc
                     endc
                     endc
                     endc

@@ -16,6 +16,7 @@ KERNEL_DIRECTMODEMPAK	= $(MD)/rel_80 $(MD)/boot_dw_directmodempak $(MD)/krn
 KERNEL_MMMPIU1  = $(MD)/rel_80 $(MD)/boot_dw_mmmpiu1 $(MD)/krn
 KERNEL_MMMPIU2  = $(MD)/rel_80 $(MD)/boot_dw_mmmpiu2 $(MD)/krn
 KERNEL_COCOSDC	= $(MD)/rel_80 $(MD)/boot_sdc $(MD)/krn
+KERNEL_USBMSD	= $(MD)/rel_80 $(MD)/boot_usbmsd $(MD)/krn
 KERNEL_IDE	= $(MD)/rel_80 $(MD)/boot_ide $(MD)/krn
 KERNEL_DIDE	= $(MD)/rel_80 $(MD)/boot_dide $(MD)/krn
 # these not used yet:
@@ -46,6 +47,12 @@ VTIO_COWIN_40 = $(MD)/vtio.dr \
 		$(MD)/w5.dw $(MD)/w6.dw $(MD)/w7.dw
 VTIO_COWIN_80 = $(MD)/vtio.dr \
 		$(MD)/joydrv_joy.sb $(MD)/snddrv_cc3.sb \
+		$(MD)/cowin.io \
+		$(MD)/term_win80.dt \
+		$(MD)/w.dw $(MD)/w1.dw $(MD)/w2.dw $(MD)/w3.dw $(MD)/w4.dw \
+		$(MD)/w5.dw $(MD)/w6.dw $(MD)/w7.dw
+VTIO_COWIN_80_EXTKEYDRV_NOJOY = $(MD)/vtio-extkeydrv.dr \
+		$(MD)/snddrv_cc3.sb \
 		$(MD)/cowin.io \
 		$(MD)/term_win80.dt \
 		$(MD)/w.dw $(MD)/w1.dw $(MD)/w2.dw $(MD)/w3.dw $(MD)/w4.dw \
@@ -415,6 +422,62 @@ BOOTFILE_COCOSDC	= $(MD)/krnp2 $(MD)/ioman $(MD)/init \
 		$(PIPE) \
 		$(CLOCK60HZ)
 
+# NitrOS-9 disk bootfile to allow booting from CoCo SD but also loading USB drivers
+BOOTFILE_COCOSDC_USB	= $(MD)/krnp2 $(MD)/ioman $(MD)/init \
+		$(MD)/rbf.mn \
+		$(RBCOCOSDC) \
+		$(MD)/ddsd0_cocosdc.dd \
+		$(FLOPPY_40D) \
+		$(MD)/scf.mn \
+		$(VTIO_COGRF_80) \
+		$(PIPE) \
+		$(CLOCK60HZ) \
+		$(MD)/usbman \
+		$(MD)/llusbmsd.dr \
+                $(MD)/u0_usbmsd.dd \
+                $(MD)/u1_usbmsd.dd
+
+# NitrOS-9 disk bootfile to allow booting from USB mass storage device
+BOOTFILE_USBMSD	= $(MD)/krnp2 $(MD)/ioman $(MD)/init \
+		$(MD)/rbf.mn \
+                $(FLOPPY_40D) \
+		$(MD)/scf.mn \
+		$(RBCOCOSDC) \
+		$(MD)/usbman \
+		$(MD)/llusbmsd.dr \
+		$(MD)/ddu0_usbmsd.dd \
+		$(MD)/u0_usbmsd.dd \
+		$(MD)/u1_usbmsd.dd \
+                $(VTIO_COWIN_80) \
+		$(MD)/w8.dw $(MD)/w9.dw $(MD)/w10.dw $(MD)/w11.dw $(MD)/w12.dw $(MD)/w13.dw $(MD)/w14.dw $(MD)/w15.dw \
+		$(MD)/vrn.dr \
+		$(MD)/vi.dd \
+		$(MD)/ftdd.dd \
+		$(PIPE) \
+		$(CLOCK60HZ)
+
+# NitrOS-9 disk bootfile to allow booting from USB mass storage device
+# and use of USB Keyboard and Mouse
+BOOTFILE_USBMSD_USBKBMOUSE = $(MD)/krnp2 $(MD)/ioman $(MD)/init \
+		$(MD)/rbf.mn \
+                $(FLOPPY_40D) \
+		$(MD)/scf.mn \
+		$(RBCOCOSDC) \
+		$(MD)/usbman \
+		$(MD)/llusbmsd.dr \
+		$(MD)/ddu0_usbmsd.dd \
+		$(MD)/u0_usbmsd.dd \
+		$(MD)/u1_usbmsd.dd \
+                $(VTIO_COWIN_80_EXTKEYDRV_NOJOY) \
+		$(MD)/joydrv_joy.sb \
+		$(MD)/w8.dw $(MD)/w9.dw $(MD)/w10.dw $(MD)/w11.dw $(MD)/w12.dw $(MD)/w13.dw $(MD)/w14.dw $(MD)/w15.dw \
+		$(MD)/vrn.dr \
+		$(MD)/vi.dd \
+		$(MD)/ftdd.dd \
+		$(PIPE) \
+		$(CLOCK60HZ) \
+		$(MD)/keydrv_usb.sb
+
 BOOTFILE_IDE	= $(MD)/krnp2 $(MD)/ioman $(MD)/init \
 		$(MD)/rbf.mn \
 		$(MD)/rbsuper.dr $(MD)/llide.dr \
@@ -482,12 +545,13 @@ BOOTFILES	= bootfile_40d bootfile_40d_50hz bootfile_80d \
 		bootfile_directmodempak_headless bootfile_cocolink_headless bootfile_cocolink \
 		bootfile_emudsk \
 		bootfile_mmmpiu1 bootfile_mmmpiu2 \
-		bootfile_mmmpiu1_headless bootfile_mmmpiu2_headless
+		bootfile_mmmpiu1_headless bootfile_mmmpiu2_headless \
+		bootfile_cocosdc_usb bootfile_usbmsd bootfile_usbmsd_usbkbmouse
 
 KERNELS		= kernel_1773 kernel_1773_50hz kernel_dw kernel_becker \
 		kernel_arduino kernel_cocosdc kernel_ide kernel_dide \
 		kernel_rs232pak kernel_directmodempak kernel_cocolink \
-		kernel_mmmpiu1 kernel_mmmpiu2
+		kernel_mmmpiu1 kernel_mmmpiu2 kernel_usbmsd
 
 ALLOBJS		= $(BOOTFILES) $(KERNELS)
 
@@ -572,6 +636,15 @@ bootfile_directmodempak_headless: $(BOOTFILE_DIRECTMODEMPAK_HEADLESS) $(DEPENDS)
 bootfile_arduino_headless: $(BOOTFILE_ARDUINO_HEADLESS) $(DEPENDS)
 	$(MERGE) $(BOOTFILE_ARDUINO_HEADLESS)>$@
 
+bootfile_cocosdc_usb: $(BOOTFILE_COCOSDC_USB) $(DEPENDS)
+	$(MERGE) $(BOOTFILE_COCOSDC_USB)>$@
+
+bootfile_usbmsd: $(BOOTFILE_USBMSD) $(DEPENDS)
+	$(MERGE) $(BOOTFILE_USBMSD)>$@
+
+bootfile_usbmsd_usbkbmouse: $(BOOTFILE_USBMSD_USBKBMOUSE) $(DEPENDS)
+	$(MERGE) $(BOOTFILE_USBMSD_USBKBMOUSE)>$@
+
 bootfile_cocosdc: $(BOOTFILE_COCOSDC) $(DEPENDS)
 	$(MERGE) $(BOOTFILE_COCOSDC)>$@
 
@@ -614,6 +687,9 @@ kernel_dw: $(KERNEL_DW) $(DEPENDS)
 
 kernel_cocosdc: $(KERNEL_COCOSDC) $(DEPENDS)
 	$(MERGE) $(KERNEL_COCOSDC)>$@
+
+kernel_usbmsd: $(KERNEL_USBMSD) $(DEPENDS)
+	$(MERGE) $(KERNEL_USBMSD)>$@
 
 kernel_ide: $(KERNEL_IDE) $(DEPENDS)
 	$(MERGE) $(KERNEL_IDE)>$@

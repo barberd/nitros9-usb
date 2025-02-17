@@ -270,13 +270,15 @@ F$VBlock            RMB       1                   Verify modules in a block of m
                     ORG       $70
 
                     IFEQ      Level-1
-
-                    RMB       16                  Reserved for user definition
+                    RMB       2                   Try to match Level2
+F$USBPollHubs       RMB       1                   Trigger Polling of USB Hubs
+                    RMB       $80-.               Reserved for user definition
 
                     ELSE
 
 F$RegDmp            RMB       1                   Ron Lammardo's debugging register dump
 F$NVRAM             RMB       1                   Non Volatile RAM (RTC battery backed static) read/write
+F$USBPollHubs       RMB       1                   Trigger Polling of USB Hubs
 
                     RMB       $80-.               Reserved for user definitions
                     ENDC
@@ -495,6 +497,8 @@ D.DWSubAddr         RMB       2                   DriveWire subroutine module po
 D.DWStat            RMB       2                   DriveWire statics page
 D.DWSrvID           RMB       1                   DriveWire server ID
 D.IRQTmp            RMB       2                   1 or 2 byte DP scratch var (for when IRQ's are off)
+D.USBManSubAddr     RMB       2                   USB Manager module pointer
+D.USBManMem         RMB       2                   USB Manager data area
 
                     ORG       $20
 

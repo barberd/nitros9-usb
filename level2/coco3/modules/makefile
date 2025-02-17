@@ -19,6 +19,7 @@ TC3FLAGS        = $(AFLAGS) -DTC3=1 $(FLAGS)
 IDEFLAGS        = $(AFLAGS) -DIDE=1 $(FLAGS)
 SDFLAGS         = $(AFLAGS) -DCOCOSDC=1 -DITTYP=128 $(FLAGS)
 CC3FPGAFLAGS    = $(AFLAGS) -DCC3FPGA=1 $(FLAGS)
+USBMSDFLAGS     = $(AFLAGS) -DUSBMSD=1 -DITTYP=145 $(FLAGS)
 
 DEPENDS		= ./makefile
 TPB		= $(3RDPARTY)/booters
@@ -26,10 +27,10 @@ TPB		= $(3RDPARTY)/booters
 BOOTERS		= boot_1773_6ms boot_1773_30ms \
 		boot_burke boot_rampak boot_wd1002 boot_dw boot_dw_becker boot_dw_arduino \
 		boot_tc3 boot_dide boot_ide boot_sdc boot_rom boot_dw_rs232pak boot_dw_directmodempak \
-		boot_dw_cocolink boot_dw_mmmpiu1 boot_dw_mmmpiu2 boot_emu
+		boot_dw_cocolink boot_dw_mmmpiu1 boot_dw_mmmpiu2 boot_emu boot_usbmsd
 BOOTTRACK	= rel_32 rel_40 rel_80 rel_32_50hz rel_40_50hz rel_80_50hz $(BOOTERS) krn
 KERNEL		= krnp2 krnp3_perr krnp4_regdump ccbkrn
-SYSMODS		= ioman init sysgo_h0 sysgo_dd sysgo_rom sysgo_bd rominfo vectors
+SYSMODS		= ioman init sysgo_h0 sysgo_dd sysgo_rom sysgo_bd rominfo vectors usbman
 CLOCKS		= clock_60hz clock_50hz \
 		clock2_elim clock2_disto2 clock2_disto4 clock2_bnb \
 		clock2_smart clock2_harris clock2_cloud9 clock2_soft \
@@ -54,6 +55,7 @@ RBF		= rbf.mn \
 		s5_tc3.dd s6_tc3.dd sh_tc3.dd \
 		ddsd0_cocosdc.dd sd0_cocosdc.dd sd1_cocosdc.dd \
 		llcoco3fpga.dr ddsd0_coco3fpga.dd sd0_coco3fpga.dd sd1_coco3fpga.dd \
+		llusbmsd.dr ddu0_usbmsd.dd u0_usbmsd.dd u1_usbmsd.dd \
 		ramd_coco3fpga.dr r0_ramd_coco3fpga.dd \
 		emudsk.dr ddh0_emudsk.dd h0_emudsk.dd h1_emudsk.dd
 
@@ -62,7 +64,7 @@ SCF		= scf.mn \
 		cowin.io cogrf.io covdg.io covdg_small.io \
 		snddrv_cc3.sb \
 		joydrv_joy.sb joydrv_6551L.sb joydrv_6552L.sb \
-		joydrv_6551M.sb joydrv_6552M.sb \
+		joydrv_6551M.sb joydrv_6552M.sb keydrv_usb.sb \
 		nil.dd p_scbbp.dd p_scdwp.dd \
 		t1_scbbt.dd t2_sc6551.dd t3_sc6551.dd \
 		ftdd.dd vi.dd ssp.dd term_scbbt.dt term_sc6551.dt \
@@ -78,6 +80,7 @@ SCF		= scf.mn \
 		n12_scdwv.dd n13_scdwv.dd midi_scdwv.dd \
 		term_z_scdwv.dt z1_scdwv.dd z2_scdwv.dd z3_scdwv.dd \
 		z4_scdwv.dd z5_scdwv.dd z6_scdwv.dd z7_scdwv.dd \
+		vtio-extkeydrv.dr
 
 PIPE		= pipeman.mn pipeman_named.mn \
 		piper.dr \
@@ -95,6 +98,17 @@ ccbkrn krn krnp2:
 	$(CP) kernel/$@ .
 
 # Special cases
+
+# USB Mass Storage Device Booter
+boot_usbmsd: boot_usbmsd.asm
+	$(AS) $(ASOUT)$@ $< $(USBMSDFLAGS)
+
+# VTIO with External IDE Descriptors
+vtio-extkeydrv.dr: vtio.asm
+	$(AS) $(AFLAGS) $(ASOUT)$@ $< -DEXTERNKEYDRV=1
+
+keydrv_usb.sb: keydrv_usb.asm
+	$(AS) $(AFLAGS) $(ASOUT)$@ $< -DEXTERNKEYDRV=1
 
 # TC^3 SCSI Booter
 boot_tc3: boot_scsi.asm
@@ -226,6 +240,10 @@ sysgo_rom: sysgo.asm
 # TC^3 SCSI Driver
 lltc3.dr: llscsi.asm
 	$(AS) $(ASOUT)$@ $< $(TC3FLAGS)
+
+# llusbmsd Driver
+llusbmsd.dr: llusbmsd.asm
+	$(AS) $(ASOUT)$@ $< $(USBMSDFLAGS)
 
 # IDE Driver
 llide.dr: llide.asm
@@ -462,6 +480,16 @@ sd0_cocosdc.dd: superdesc.asm
 
 sd1_cocosdc.dd: superdesc.asm
 	$(AS) $(ASOUT)$@ $< $(SDFLAGS) -DITDRV=1
+
+# USB Mass Storage Device Descriptors
+ddu0_usbmsd.dd: superdesc.asm
+	$(AS) $(ASOUT)$@ $< $(USBMSDFLAGS) -DDD=1
+
+u0_usbmsd.dd: superdesc.asm
+	$(AS) $(ASOUT)$@ $< $(USBMSDFLAGS) -DITDRV=0
+
+u1_usbmsd.dd: superdesc.asm
+	$(AS) $(ASOUT)$@ $< $(USBMSDFLAGS) -DITDRV=1
 
 # CoCo3FPGA SD Descriptors
 ddsd0_coco3fpga.dd: superdesc.asm

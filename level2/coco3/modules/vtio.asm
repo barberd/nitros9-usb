@@ -166,8 +166,10 @@ Term                ldx       <D.CCMem            get ptr to CC memory
                     bsr       TermSub             Terminate JoyDrv
                     ldx       #(WGlobal+G.SndEnt) Point to start of SndDrv entry/static mem block
                     bsr       TermSub             Terminate SndDrv
-*         ldx   #(WGlobal+G.KeyEnt)  Point to start of KeyDrv entry/static mem block
-*         bsr   TermSub      Terminate KeyDrv
+                   ifne   EXTERNKEYDRV
+                    ldx   #(WGlobal+G.KeyEnt)  Point to start of KeyDrv entry/static mem block
+                    bsr   TermSub      Terminate KeyDrv
+                   endc
                     puls      u,x                 Restore regs
 noterm              ldb       #CoTerm             ($0C) branch table offset for terminate
                     lbra      CallCo              go to terminate in co-module
@@ -220,14 +222,13 @@ Init                ldx       <D.CCMem            get ptr to CC mem
                     std       <G.KyDly,x          set initial and 2ndary constants
                     ldd       <D.SysPrc           get system process desc ptr
                     std       <D.Proc             make current process
-
-* KeyDrv merged back into VTIO; next lines not needed anymore
-*         leax  <KeyDrv,pcr  point to keyboard driver sub module name
-*         bsr   LinkSys      link to it (restores U to D.CCMem)
-*         sty   >G.KeyEnt,u  save the entry point
-* removed; was never used in Keydrv anyways
-*         leau  >G.KeyMem,u  point U to keydrv statics
-*         jsr   ,y           call init routine of sub module (K$Init)
+                   ifne       EXTERNKEYDRV
+                    leax  <KeyDrv,pcr  point to keyboard driver sub module name
+                    bsr   LinkSys      link to it (restores U to D.CCMem)
+                    sty   >G.KeyEnt,u  save the entry point
+                    leau  >G.KeyMem,u  point U to keydrv statics
+                    jsr   ,y           call init routine of sub module (K$Init)
+                   endc
 
                     leax      <JoyDrv,pcr         point to joystick driver sub module name
                     bsr       LinkSys             link to it (restores U to D.CCMem)
@@ -252,8 +253,10 @@ PerWinInit          ldd       #$0078              Default mouse sample rate (0) 
                     ldd       <IT.PAR,y           get parity/baud bytes from dev desc
                     std       <V.DevPar,u         save it off in our static (hi bit=window device)
                     lbra      FindCoMod           go find and init co-module
-
-*KeyDrv   fcs   /KeyDrv/     Name of keyboard driver subroutine module
+               
+                   ifne       EXTERNKEYDRV
+KeyDrv   fcs   /KeyDrv/     Name of keyboard driver subroutine module
+                   endc
 JoyDrv              fcs       /JoyDrv/     Name of joystick driver subroutine module
 SndDrv              fcs       /SndDrv/     Name of sound driver subroutine module
 
@@ -738,7 +741,14 @@ L0369               equ       *
                     puls      a
                     ENDC
                     beq       L0381               no, try joystick
+                   ifne       EXTERNKEYDRV
+                    ldx   >WGlobal+G.KeyEnt        else get ptr to keydrv
+                    leau  >G.KeyMem,u              and ptr to its statics
+                    jsr   K$FnKey,x                call into it
+                    ldu   <D.CCMem                 get ptr to CC mem
+                   else
                     lbsr      FuncKeys            Get status of F1/F2 keys into A
+                   endc
                     sta       <G.KyButt,u         save keyboard/button state
 L0381               ldx       >WGlobal+G.JoyEnt   get ptr to joydrv Entry point
                     leau      >G.JoyMem,u         and ptr to its statics
@@ -775,9 +785,17 @@ Normal              lda       <G.KyButt,u         Get keyboard mouse fire button
                     lbsr      L0229               Update mouse packet timers, etc. (and signals if needed)
                     tstb                          Any mouse buttons clicked?
                     lbne      CheckAutoMouse      Yes, skip ahead
+                   ifne       EXTERNKEYDRV
+                    pshs  u,y,x                    
+                    ldx   >WGlobal+G.KeyEnt        
+                    leau  >G.KeyMem,u              
+                    jsr   K$RdKey,x                call Read Key routine
+                    puls  u,y,x
+                   else
                     pshs      y,x                 No, save regs
                     lbsr      ReadKys             Get keypress into A (or high bit set in B if button pressed)
                     puls      y,x                 Restore regs
+                   endc
                     bpl       L03C8               branch if normal char received
                     clr       <G.LastCh,u         else clear last character var
                     lbra      CheckAutoMouse      and skip ahead
@@ -1743,6 +1761,7 @@ L091B               puls      u,x,d               restore regs
                     lbcs      L05EB               exit if error from load or link, else return
                     rts
 
+                   ifeq       EXTERNKEYDRV
 * Keydrv merged into here (2 functions)
 * K$FnKey
 * This entry point tests for the F1/F2 function keys on a CoCo 3
@@ -2094,6 +2113,7 @@ KL01DC              fcb       $40,$60,$00         '@,'`,null
                     fcb       $05,$03,$1b         BREAK key (ENQ,ETX,ESC)
                     fcb       $31,$33,$35         F1 key (converts to $B1,$B3,$B5)
                     fcb       $32,$34,$36         F2 key (converts to $B2,$B4,$B6)
+                   endc
 
                     emod
 eom                 equ       *

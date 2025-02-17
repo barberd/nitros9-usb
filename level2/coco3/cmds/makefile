@@ -29,13 +29,15 @@ CMDS_D2         = basic09 runb gfx2 gfx inkey syscall copy del echo format \
 
 CMDS_DW		= inetd dw telnet httpd
 
+CMDS_USB	= usb
+
 SHELLMODS	= shellplus date deiniz echo iniz link load save unlink
 
 UTILPAK1	= attr build copy del deldir dir display list makdir mdir \
 		merge mfree procs rename tmode
 
 # Files not compilable by os9asm: config
-all:	$(DEPENDS) $(CMDS) $(CMDS_D2) $(CMDS_DW) shell utilpak1 $(DEPENDS)
+all:	$(DEPENDS) $(CMDS) $(CMDS_D2) $(CMDS_DW) $(CMDS_USB) shell utilpak1 $(DEPENDS)
 
 # Some commands depend on net.o
 $(NOSLIB)/net.o:
@@ -71,8 +73,8 @@ utilpak1:  $(UTILPAK1) $(DEPENDS)
 	@ls -l $@
 	@$(ECHO) ""
 
-clean:
-	$(RM) shell utilpak1 $(SUBS) $(SHELLMODS) $(CMDS) $(CMDS_D2) $(CMDS_DW)
+clean: 
+	$(RM) shell utilpak1 $(SUBS) $(SHELLMODS) $(CMDS) $(CMDS_D2) $(CMDS_DW) $(CMDS_USB)
 
 # Only $(CMDS) are shown here
 showobjs:
@@ -83,6 +85,9 @@ showobjs_dw:
 
 showobjs_d2:
 	@$(ECHO) $(CMDS_D2)
+
+showobjs_usb:
+	@$(ECHO) $(CMDS_USB)
 
 identify:
 	$(IDENT_SHORT) $(ALLOBJS)
