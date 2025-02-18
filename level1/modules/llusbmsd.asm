@@ -571,7 +571,7 @@ BOTXfer
                     tfr       s,x
                     jsr       USBOutTransfer,y
                     pshs      cc
-                    lda       7,s
+                    lda       1+USBOTS.DataFlag,s
                     sta       DT.USBDataFlag,u    store DATA0/DATA1 flag
                     puls      cc
                     leas      8,s
