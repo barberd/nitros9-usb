@@ -83,6 +83,7 @@ SCDWV_NET  = $(MD)/fuji_scdwv.dd $(MD)/n_scdwv.dd $(MD)/n1_scdwv.dd $(MD)/n2_scd
 		$(MD)/n3_scdwv.dd $(MD)/n4_scdwv.dd $(MD)/midi_scdwv.dd
 SCDWV_WIN  = $(MD)/z1_scdwv.dd $(MD)/z2_scdwv.dd
 SCDWP     = $(MD)/scdwp.dr $(MD)/p_scdwp.dd
+USBPRINTER = $(MD)/usbprinter.dr $(MD)/p_usbprinter.dd
 PIPE       = $(MD)/pipeman.mn $(MD)/piper.dr $(MD)/pipe.dd
 CLOCK50HZ  = $(MD)/clock_50hz $(MD)/clock2_soft
 CLOCK60HZ  = $(MD)/clock_60hz $(MD)/clock2_soft
@@ -453,6 +454,7 @@ BOOTFILE_USBMSD	= $(MD)/krnp2 $(MD)/ioman $(MD)/init \
 		$(MD)/vrn.dr \
 		$(MD)/vi.dd \
 		$(MD)/ftdd.dd \
+		$(USBPRINTER) \
 		$(PIPE) \
 		$(CLOCK60HZ)
 
@@ -474,6 +476,7 @@ BOOTFILE_USBMSD_USBKBMOUSE = $(MD)/krnp2 $(MD)/ioman $(MD)/init \
 		$(MD)/vrn.dr \
 		$(MD)/vi.dd \
 		$(MD)/ftdd.dd \
+		$(USBPRINTER) \
 		$(PIPE) \
 		$(CLOCK60HZ) \
 		$(MD)/keydrv_usb.sb

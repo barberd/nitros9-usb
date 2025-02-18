@@ -80,7 +80,7 @@ SCF		= scf.mn \
 		n12_scdwv.dd n13_scdwv.dd midi_scdwv.dd \
 		term_z_scdwv.dt z1_scdwv.dd z2_scdwv.dd z3_scdwv.dd \
 		z4_scdwv.dd z5_scdwv.dd z6_scdwv.dd z7_scdwv.dd \
-		vtio-extkeydrv.dr
+		vtio-extkeydrv.dr usbprinter.dr p_usbprinter.dd
 
 PIPE		= pipeman.mn pipeman_named.mn \
 		piper.dr \
