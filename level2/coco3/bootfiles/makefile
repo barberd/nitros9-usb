@@ -471,15 +471,15 @@ BOOTFILE_USBMSD_USBKBMOUSE = $(MD)/krnp2 $(MD)/ioman $(MD)/init \
 		$(MD)/u0_usbmsd.dd \
 		$(MD)/u1_usbmsd.dd \
                 $(VTIO_COWIN_80_EXTKEYDRV_NOJOY) \
-		$(MD)/joydrv_joy.sb \
 		$(MD)/w8.dw $(MD)/w9.dw $(MD)/w10.dw $(MD)/w11.dw $(MD)/w12.dw $(MD)/w13.dw $(MD)/w14.dw $(MD)/w15.dw \
+		$(MD)/keydrv_usb.sb \
+		$(MD)/joydrv_usbmouse.sb \
 		$(MD)/vrn.dr \
 		$(MD)/vi.dd \
 		$(MD)/ftdd.dd \
-		$(USBPRINTER) \
 		$(PIPE) \
 		$(CLOCK60HZ) \
-		$(MD)/keydrv_usb.sb
+		$(USBPRINTER)
 
 BOOTFILE_IDE	= $(MD)/krnp2 $(MD)/ioman $(MD)/init \
 		$(MD)/rbf.mn \

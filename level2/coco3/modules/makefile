@@ -65,6 +65,7 @@ SCF		= scf.mn \
 		snddrv_cc3.sb \
 		joydrv_joy.sb joydrv_6551L.sb joydrv_6552L.sb \
 		joydrv_6551M.sb joydrv_6552M.sb keydrv_usb.sb \
+		joydrv_usbmouse.sb \
 		nil.dd p_scbbp.dd p_scdwp.dd \
 		t1_scbbt.dd t2_sc6551.dd t3_sc6551.dd \
 		ftdd.dd vi.dd ssp.dd term_scbbt.dt term_sc6551.dt \
