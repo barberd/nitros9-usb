@@ -486,7 +486,7 @@ foundendpoint@
                     sta       4,s
                     ldd       #$210B
                     std       5,s
-                    lda       UsbKbd.EndpointIn,y
+                    lda       UsbKbd.EndpointIn,u
                     sta       9,s
                     ldd       #$0000
                     std       7,s                 a=0=boot protocol
