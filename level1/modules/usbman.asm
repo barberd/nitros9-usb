@@ -370,6 +370,7 @@ DirectPortReset
                     ldb       #CH376_GET_STATUS   clear any interrupts generated
                     stb       CH376_CMDREG
                     ldb       CH376_DATAREG
+                    lbsr      Delay1Tk
                     sta       CH376_CMDREG
                     ldb       #$06                set host mode, with SOF package
                     stb       CH376_DATAREG
