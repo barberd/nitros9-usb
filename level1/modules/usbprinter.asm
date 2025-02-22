@@ -88,6 +88,13 @@ start               lbra      Init
 *    B  = error code
 *
 Term                equ       *
+                  IFGT    Level-1
+                    ldy       <D.USBManSubAddr
+                  ELSE
+                    ldy       >D.USBManSubAddr
+                  ENDC
+                    leax      USBPrinterProbe,pcr
+                    jsr       USBDeregisterDriver,y
                     clrb
                     rts
 
