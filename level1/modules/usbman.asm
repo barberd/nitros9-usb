@@ -8,6 +8,7 @@
 * ------------------------------------------------------------------
 *  01	   2023/12/31  Don Barber
 * USB Manager written around the CH376 chip
+* See https://github.com/barberd/cocousbhost for hardware design for CoCo.
 
                     nam       USBMan
                     ttl       USB Manager with Low Level Subroutines for CH376 Chip
@@ -17,7 +18,7 @@
                     use       ch376.d
 
 USBMaxDevices       equ       6
-USBMaxDrivers       equ       4
+USBMaxDrivers       equ       5                   Hub+MSD+KBD+Mouse+Printer
 USBMaxInterfaces    equ       16
 USBMaxHubs          equ       3
 
