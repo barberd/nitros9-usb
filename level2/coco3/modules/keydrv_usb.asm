@@ -461,13 +461,12 @@ finish@             rts
 KbdProbe            pshs      x,y
                     tst       UsbKbd.DeviceId,u
                     bne       error@
-                    lda       ,y
+                    lda       USBInterfaceDeviceId,y
                     sta       UsbKbd.DeviceId,u
                     clr       UsbKbd.DataFlag,u
 * Start looking for endpoint here
-                    #lda      #$05
-loop1@              lda       1,x
-                    cmpa      #$05
+loop1@              lda       1,x                 descriptor type field
+                    cmpa      #$05                $05 is endpoint descriptor
                     beq       foundendpoint@
                     clra
                     ldb       ,x
@@ -481,12 +480,12 @@ foundendpoint@
 * Set boot protocol
                     leas      -13,s
                     leax      5,s
-                    stx       ,s
+                    stx       USBCTS.SetupPktPtr,s
                     lda       UsbKbd.DeviceId,u
-                    sta       4,s
+                    sta       USBCTS.DeviceId,s
                     ldd       #$210B
                     std       5,s
-                    lda       UsbKbd.EndpointIn,u
+                    lda       USBInterfaceNum,y
                     sta       9,s
                     ldd       #$0000
                     std       7,s                 a=0=boot protocol
