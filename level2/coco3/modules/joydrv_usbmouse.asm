@@ -172,15 +172,17 @@ finish@             rts
 * X Interface entry in memory
 * Returns Carry Clear if accept
 MouseProbe          pshs      x,y
+                    lda       #$DD
+                    sta       $FF68
                     tst       M.DeviceId,u
                     bne       error@              We already have a mouse
-                    lda       ,y
+                    lda       USBInterfaceDeviceId,y
                     sta       M.DeviceId,u
+                    sta       $FF68
                     clr       M.DataFlag,u
 * Start looking for endpoint here
-                    #lda      #$05
-loop1@              lda       1,x
-                    cmpa      #$05
+loop1@              lda       1,x                 descriptor type field
+                    cmpa      #$05                $05 is endpoint type
                     beq       foundendpoint@
                     clra
                     ldb       ,x
@@ -191,15 +193,18 @@ foundendpoint@
                     lda       2,x
                     anda      #$7F
                     sta       M.EndpointIn,u
+                    sta       $FF68
 * Set boot protocol
                     leas      -13,s
                     leax      5,s
-                    stx       USBCTS.SetupPktPtr,s
-                    sta       9,s                 store EndpointIn
+                    stx       ,s
                     lda       M.DeviceId,u
                     sta       USBCTS.DeviceId,s
-                    ldd       #$210B
+                    ldd       #$210B              set protocol
                     std       5,s
+                    lda       USBInterfaceNum,y
+                    sta       $FF68
+                    sta       9,s                 store Endpoint
                     ldd       #$0000
                     std       7,s                 a=0=boot protocol
                     stb       10,s
@@ -212,7 +217,12 @@ foundendpoint@
                   ENDC
                     jsr       USBControlTransfer,y
                     leas      13,s
+                    lda       #$DA
+                    sta       $FF68
                     bcc       finish@
+                    lda       #$DE
+                    sta       $FF68
+                    stb       $FF68
 error@
 * Clear out local memory
                     bsr       ClrMem
@@ -291,9 +301,10 @@ RShift              asra                          Calculate 50%
 * Store in Memory area
 * Carry clear if success, set if error
 ReadPkt             lda       M.DeviceId,u
+                    sta       $FF68
                     beq       error@              if no mouse, then error
                     leas      -16,s               make room on stack
-                    ldb       M.DeviceId,u
+                    ldb       M.EndpointIn,u
                     std       USBITS.DeviceId,s
                     leax      9,s
                     stx       USBITS.BufferPtr,s
@@ -315,6 +326,7 @@ ReadPkt             lda       M.DeviceId,u
                     sta       M.DataFlag,u
                     puls      cc
                     bcc       goodpacket@
+                    stb       $FF68
                     cmpb      #$2E                 Got NAK, valid no update
                     bne       errorstack@
                     clrb
@@ -322,6 +334,7 @@ ReadPkt             lda       M.DeviceId,u
                     bra       finish@
 goodpacket@
                     ldb       10,s                 8 bit signed X delta
+                    stb       $FF68
                     bsr       DoBallistic
                     addd      M.X,u
                     bpl       xpos@
@@ -337,6 +350,7 @@ xpos@               cmpd      #HResMaxX
                     ldd       #HResMaxX
 xstore@             std       M.X,u
                     ldb       11,s                 8 bit signed Y delta
+                    stb       $FF68
                     bsr       DoBallistic
                     addd      M.Y,u
                     bpl       ypos@
@@ -352,6 +366,7 @@ ypos@               cmpd      #HResMaxY*2
                     ldd       #HResMaxY*2
 ystore@             std       M.Y,u
                     lda       9,s                  button byte to return
+                    sta       $FF68
                     clrb
                     leas      16,s
                     bra       finish@
@@ -374,7 +389,8 @@ finish@             rts
 *          A, X, registers may be altered
 *
 * ERROR OUTPUT:  none
-SSMsBtn             bsr       ReadPkt             returns usb button state in A
+; TODO make not lbsr
+SSMsBtn             lbsr       ReadPkt             returns usb button state in A
                     clrb
                     bita      #%00000001
                     beq       notleftbtn@
