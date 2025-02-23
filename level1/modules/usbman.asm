@@ -740,25 +740,6 @@ foundslot0@
                     puls      a
                     sta       USBDeviceId,y       store device id in device record
                     stx       USBDeviceHub,y      store hub and port in device record
-* Now, get first 8 bytes to get bMaxPacketSize0
-                    ldd       #$0800
-                    sta       USBDeviceMaxPacketSize,y store 8 byte min temporarily
-                    leax      DeviceDesc,pcr
-                    leas      -13,s
-                    stx       USBCTS.SetupPktPtr,s
-                    leax      5,s
-                    stx       USBCTS.BufferPtr,s
-                    clra                          device id 0 at this point
-                    sta       USBCTS.DeviceId,s
-                    leax      ,s
-                    lbsr      ControlTransfer
-                    bcc       goodxfer0@
-                    leas      13,s
-                    lbra      error@
-goodxfer0@          ldb       5+USBDDBMaxPacketSize0,s load bMaxPacketSize0 here
-                    leas      13,s
-                    stb       USBDeviceMaxPacketSize,y store in device record
-* Device is on bus as device id 0
 * Now assign the identified ID to the device
                     clra                          send to device id 0
                     lbsr      GetUSBLock
@@ -771,6 +752,25 @@ goodxfer0@          ldb       5+USBDDBMaxPacketSize0,s load bMaxPacketSize0 here
                     cmpa      #CH376_USB_INT_SUCCESS
                     lbne      error@
                     lbsr      Delay3Tk
+* Now, get first 8 bytes to get bMaxPacketSize0
+                    lda       #$08
+                    sta       USBDeviceMaxPacketSize,y store 8 byte min temporarily
+                    leax      DeviceDesc,pcr
+                    leas      -13,s
+                    stx       USBCTS.SetupPktPtr,s
+                    leax      5,s
+                    stx       USBCTS.BufferPtr,s
+                    *clra                          device id 0 at this point
+                    lda       USBDeviceId,y 
+                    sta       USBCTS.DeviceId,s
+                    leax      ,s
+                    lbsr      ControlTransfer
+                    bcc       goodxfer0@
+                    leas      13,s
+                    lbra      error@
+goodxfer0@          ldb       5+USBDDBMaxPacketSize0,s load bMaxPacketSize0 here
+                    leas      13,s
+                    stb       USBDeviceMaxPacketSize,y store in device record
 * Next, get the full record now that we know the bMaxPacketSize0
                     ldd       #$1200              device descriptors always 18 bytes
                     pshs      d
@@ -1139,6 +1139,7 @@ InTransfer
                     pshs      u,y
                     ldu       USBITS.BufferPtr,x
                     ldy       USBITS.BufferLength,x
+                    lda       USBITS.MaxPacketSize,x
                     lda       USBITS.EndpointId,x
                     asla                          shift endpoint up four bits
                     asla
@@ -1179,18 +1180,18 @@ skipnak@
                     lda       ,s                  grab transaction attribute off stack
                     sta       CH376_DATAREG
                     lbsr      WaitIrqResult
-                    cmpa      #CH376_USB_INT_SUCCESS
-                    lbne      error@
                     ldb       USBITS.DataFlag,x
                     eorb      #$80                flip and store flag for next time
                     stb       USBITS.DataFlag,x
+                    cmpa      #CH376_USB_INT_SUCCESS
+                    lbne      error@
 doread@
                     lda       #CH376_RD_USB_DATA0 datasheet says same but data0 is more efficient
                     sta       CH376_CMDREG
                     clra
                     ldb       CH376_DATAREG       D now contains num bytes to read
                     pshs      d
-                    cmpb      #64                 error if over 64 bytes
+                    cmpb      USBITS.MaxPacketSize,x error if over maxpacketsize
                     bhi       sizeerr@
 * check against buffer size
 * if too big, just error out entirely
@@ -1297,11 +1298,11 @@ donedata@
                     sta       CH376_DATAREG
                     lbsr      WaitIrqResult
                     lbsr      FreeUSBLock
-                    cmpa      #CH376_USB_INT_SUCCESS
-                    bne       error@
                     ldb       USBOTS.DataFlag,x
                     eorb      #$40                flip and store flag for next time
                     stb       USBOTS.DataFlag,x
+                    cmpa      #CH376_USB_INT_SUCCESS
+                    bne       error@
                     cmpy      #0                  if buffer is done, then exit
                     bne       bigloop@
 wrapup@             ldd       USBOTS.BufferLength,x
