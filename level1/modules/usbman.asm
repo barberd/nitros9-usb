@@ -382,6 +382,7 @@ DirectPortReset
                     lda       #CH376_GET_STATUS   clear any interrupts generated
                     sta       CH376_CMDREG
                     lda       CH376_DATAREG
+                    lda       >PIA1Base+2         clear latched interrupts
                     clrb
                     bra       finish@
 error@              comb
@@ -1186,7 +1187,7 @@ skipnak@
                     cmpa      #CH376_USB_INT_SUCCESS
                     lbne      error@
 doread@
-                    lda       #CH376_RD_USB_DATA0 datasheet says same but data0 is more efficient
+                    lda       #CH376_RD_USB_DATA0
                     sta       CH376_CMDREG
                     clra
                     ldb       CH376_DATAREG       D now contains num bytes to read
