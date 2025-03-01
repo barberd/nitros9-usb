@@ -632,7 +632,7 @@ csw@                pshs      x
                     std       USBITS.DeviceId,s
                     lda       DT.USBDataFlag,x
                     sta       USBITS.DataFlag,s
-                    lda       DT.USBMaxPacketSizeOut,x
+                    lda       DT.USBMaxPacketSizeIn,x
                     sta       USBITS.MaxPacketSize,s
                     clr       USBITS.NakFlag,s    default NAK behavior
                     leax      9,s
