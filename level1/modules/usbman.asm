@@ -298,22 +298,20 @@ WaitIrqResult
                     beq       multitasking@
 * If interrupts are off, check flag register manually.
 * This is necessary while the system is still booting.
-manualintloop@
-                    lda       CH376_FLAGREG
+manualintloop@      lda       CH376_FLAGREG
                     bmi       manualintloop@
                     lbsr      IrqHandler
                     lda       >PIA1Base+2         reset any latched CART interrupt
                     lda       USBIntStatus,u
                     bra       finish@
-multitasking@
-loop@
-                    lda       USBIntStatus,u      sleep/loop until interrupt received by handler
+multitasking@       
+loop@               lda       USBIntStatus,u      sleep/loop until interrupt received by handler
                     bne       finish@
                   IFGT    Level-1
                     ldx       <D.Proc             Get current process pointer
                     cmpx      <D.SysPrc           system?
                     beq       loop@               system cannot sleep
-                    ldx       #255                Sleep until received Interrupt
+                    ldx       #0                  Sleep until received Interrupt
                     os9       F$Sleep
                   ENDC
                     bra       loop@
@@ -608,10 +606,6 @@ skipentry@          leay      USBInterfaceRecLength,y
                     puls      b
                     decb
                     bne       loop1@
-* When a new driver registers, its a good signal that the user is trying
-* something that indicates new hardware has been inserted, so poll the hubs
-* looking for new hardware
-                    lbsr      PollHubs
                     clrb
                     bra       finish@
 error@              comb
@@ -1140,7 +1134,6 @@ InTransfer
                     pshs      u,y
                     ldu       USBITS.BufferPtr,x
                     ldy       USBITS.BufferLength,x
-                    lda       USBITS.MaxPacketSize,x
                     lda       USBITS.EndpointId,x
                     asla                          shift endpoint up four bits
                     asla
@@ -1181,19 +1174,17 @@ skipnak@
                     lda       ,s                  grab transaction attribute off stack
                     sta       CH376_DATAREG
                     lbsr      WaitIrqResult
+                    cmpa      #CH376_USB_INT_SUCCESS
+                    lbne      error@
                     ldb       USBITS.DataFlag,x
                     eorb      #$80                flip and store flag for next time
                     stb       USBITS.DataFlag,x
-                    cmpa      #CH376_USB_INT_SUCCESS
-                    lbne      error@
 doread@
                     lda       #CH376_RD_USB_DATA0
                     sta       CH376_CMDREG
                     clra
                     ldb       CH376_DATAREG       D now contains num bytes to read
                     pshs      d
-                    cmpb      USBITS.MaxPacketSize,x error if over maxpacketsize
-                    bhi       sizeerr@
 * check against buffer size
 * if too big, just error out entirely
                     cmpy      ,s
@@ -1218,7 +1209,7 @@ wrapup@             ldd       USBITS.BufferLength,x
                     subd      ,s++
                     bra       finish@
 sizeerr@            leas      2,s                 get rid of size to read on stack
-                    lda       #$FF                give error code as $FF
+                    lda       #E$BufSiz           give error code
 error@              lbsr      FreeUSBLock
                     comb
                     tfr       a,b                 return interrupt received in B
@@ -1299,11 +1290,11 @@ donedata@
                     sta       CH376_DATAREG
                     lbsr      WaitIrqResult
                     lbsr      FreeUSBLock
+                    cmpa      #CH376_USB_INT_SUCCESS
+                    bne       error@
                     ldb       USBOTS.DataFlag,x
                     eorb      #$40                flip and store flag for next time
                     stb       USBOTS.DataFlag,x
-                    cmpa      #CH376_USB_INT_SUCCESS
-                    bne       error@
                     cmpy      #0                  if buffer is done, then exit
                     bne       bigloop@
 wrapup@             ldd       USBOTS.BufferLength,x
