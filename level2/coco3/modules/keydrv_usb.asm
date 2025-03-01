@@ -135,14 +135,15 @@ entry               equ       *
 
 * Read - read keys if pressed
 * Exit: A = key pressed
-ReadKys             lda       #$57
-                    ldu       <D.CCMem            Get VTIO global memory into U
-                    pshs      dp
+ReadKys             pshs      dp
                     leas      -8,s
                     tfr       s,x
                     lbsr      KbdGetReport
+                    tfr       d,y
+                    ldu       <D.CCMem            Get VTIO global memory into U
                     tfr       u,d
                     tfr       a,dp
+                    tfr       y,d
                     bcc       goodreport@
                     cmpb      #$2A                NAK report meaning no change
                     lbne      nokey@              if not a NAK, bail out here
@@ -325,13 +326,11 @@ finish@             leas      8,s
                     puls      dp
                     rts
 
-* U is VTIO memory (D.CCMem)
+* U is G.KeyMem memory (located in D.CCMem)
 * X is 8 byte buffer for report
 * Returns carry set if no change
 KbdGetReport        pshs      x,y,u
                     ldy       <D.USBManMem
-                    tst       ,y                  This is USBLock in the USB manager memory area
-                    bne       error@              Bail out if usb device is already locked
 * This is needed here because a keyboard read is
 * running in system where it does not timeslice
 * out. When another process happens to be using
@@ -339,39 +338,37 @@ KbdGetReport        pshs      x,y,u
 * time to allow the other job that has usb locked
 * to run, resulting in a deadlock. Avoid that by
 * just bailing out here if USB is locked.
-                    leau      >G.KeyMem,u         point U to keydrv statics
-                    #leau     G.KeyMem,u          point U to keydrv statics
+                    tst       ,y                  This is USBLock in the USB manager memory area
+                    bne       error@              Bail out if usb device is already locked
                     tst       UsbKbd.DeviceId,u
                     beq       error@
                     leas      -9,s
-                    stx       ,s
+                    stx       USBITS.BufferPtr,s
                     ldd       #$0008
-                    std       2,s
-                    stb       7,s                 max packet is always 8 for kbd boot protocol
-                    stb       8,s                 bubble up NAKs, no retry
+                    std       USBITS.BufferLength,s
+                    stb       USBITS.MaxPacketSize,s max packet is always 8 for kbd boot protocol
+                    stb       USBITS.NakFlag,s    bubble up NAKs, no retry
                     ldd       UsbKbd.DeviceId,u
-                    std       4,s                 device and endpoint
+                    std       USBITS.DeviceId,s   device and endpoint
                     lda       UsbKbd.DataFlag,u   data0/data1 flag
-                    sta       6,s
+                    sta       USBITS.DataFlag,s
                     leax      ,s
                   IFGT    Level-1
                     ldy       <D.USBManSubAddr
-                  ELSE
-                    ldy       >D.USBManSubAddr
-                  ENDC
-                  IFGT    Level-1
                     ldd       D.Proc              get curr proc ptr
                     pshs      d                   save on stack
                     ldd       D.SysPrc            get system process desc ptr
                     std       D.Proc              and make current proc
+                  ELSE
+                    ldy       >D.USBManSubAddr
                   ENDC
                     jsr       USBInTransfer,y
                   IFGT    Level-1
                     puls      x                   get curr proc ptr
                     stx       D.Proc              restore
                   ENDC
-success@            pshs      cc
-                    lda       7,s
+                    pshs      cc
+                    lda       1+USBITS.DataFlag,s
                     sta       UsbKbd.DataFlag,u   save data0/data1 flag
                     puls      cc
                     leas      9,s
@@ -382,8 +379,7 @@ finish@             puls      u,x,y,pc
 * This entry point tests for the F1/F2 function keys on a CoCo 3
 * keyboard.
 * Exit: A = Function keys pressed (Bit 0 = F1, Bit 2 = F2)
-FuncKeys            ldu       <D.CCMem            get VTIO global mem pointer into U
-                    leas      -8,s
+FuncKeys            leas      -8,s
                     tfr       s,x
                     lbsr      KbdGetReport
                     bcs       error@

@@ -172,13 +172,10 @@ finish@             rts
 * X Interface entry in memory
 * Returns Carry Clear if accept
 MouseProbe          pshs      x,y
-                    lda       #$DD
-                    sta       $FF68
                     tst       M.DeviceId,u
                     bne       error@              We already have a mouse
                     lda       USBInterfaceDeviceId,y
                     sta       M.DeviceId,u
-                    sta       $FF68
                     clr       M.DataFlag,u
 * Start looking for endpoint here
 loop1@              lda       1,x                 descriptor type field
@@ -193,7 +190,6 @@ foundendpoint@
                     lda       2,x
                     anda      #$7F
                     sta       M.EndpointIn,u
-                    sta       $FF68
 * Set boot protocol
                     leas      -13,s
                     leax      5,s
@@ -203,7 +199,6 @@ foundendpoint@
                     ldd       #$210B              set protocol
                     std       5,s
                     lda       USBInterfaceNum,y
-                    sta       $FF68
                     sta       9,s                 store Endpoint
                     ldd       #$0000
                     std       7,s                 a=0=boot protocol
@@ -217,12 +212,7 @@ foundendpoint@
                   ENDC
                     jsr       USBControlTransfer,y
                     leas      13,s
-                    lda       #$DA
-                    sta       $FF68
                     bcc       finish@
-                    lda       #$DE
-                    sta       $FF68
-                    stb       $FF68
 error@
 * Clear out local memory
                     bsr       ClrMem
@@ -290,9 +280,9 @@ DoBallistic         sex
                     bpl       PosAdjust@
                     orb       #%00000111          Do nothing if > -8
                     addd      #1                  "fix" negative offset
-                    bra       RShift
+                    bra       RShift@
 PosAdjust@          andb      #%11111000          Do nothing if < 8
-RShift              asra                          Calculate 50%
+RShift@             asra                          Calculate 50%
                     rorb
                     addd      ,s++                Add to original
                     rts
@@ -300,13 +290,20 @@ RShift              asra                          Calculate 50%
 * Read USB Mouse Packet here
 * Store in Memory area
 * Carry clear if success, set if error
-ReadPkt             lda       M.DeviceId,u
-                    sta       $FF68
-                    beq       error@              if no mouse, then error
+ReadPkt             pshs      y
+                    lda       M.DeviceId,u
+                    lbeq      error@              if no mouse, then error
+                  IFGT    Level-1
+                    ldy       <D.USBManMem
+                  ELSE
+                    ldy       >D.USBManMem
+                  ENDC
+                    tst       ,y                  This is USBLock in the USB manager memory area    
+                    lbne      error@              Bail out if usb device is already locked          
                     leas      -16,s               make room on stack
                     ldb       M.EndpointIn,u
                     std       USBITS.DeviceId,s
-                    leax      9,s
+                    leax      8,s
                     stx       USBITS.BufferPtr,s
                     ldd       #$0008
                     std       USBITS.BufferLength,s
@@ -317,24 +314,35 @@ ReadPkt             lda       M.DeviceId,u
                     tfr       s,x
                   IFGT    Level-1
                     ldy       <D.USBManSubAddr
+* This is needed as MsBtn is running under the clock AltIrq routine
+* which can't sleep. But is not necessarily running as system, so USBMan doesn't
+* know that it can't sleep. So the system call for F$Sleep results a very corrupted
+* stack. Instead, just tell USBMan its running as system so it won't even try to sleep.
+                    ldd       <D.Proc             get current process descriptor pointer          
+                    pshs      d                   preserve it
+                    ldd       <D.SysPrc           get system process descriptor pointer
+                    std       <D.Proc             save it as current process
                   ELSE
                     ldy       >D.USBManSubAddr
                   ENDC
                     jsr       USBInTransfer,y
+                  IFGT    Level-1
+                    puls      x
+                    stx       <D.Proc             restore current process. Clobbers some flags but not carry.
+                  ENDC
                     pshs      cc
-                    lda       1+USBITs.DataFlag,s
+                    lda       1+USBITS.DataFlag,s
                     sta       M.DataFlag,u
                     puls      cc
                     bcc       goodpacket@
-                    stb       $FF68
-                    cmpb      #$2E                 Got NAK, valid no update
-                    bne       errorstack@
-                    clrb
+                    cmpb      #$2A                 
+                    bne       errorstack@          Error if not NAK
+                    clrb                           If NAK, exit cleanly as this is just "no change"
+                    lda       M.Button,u           so load prior button state
                     leas      16,s
                     bra       finish@
 goodpacket@
-                    ldb       10,s                 8 bit signed X delta
-                    stb       $FF68
+                    ldb       9,s                 8 bit signed X delta
                     bsr       DoBallistic
                     addd      M.X,u
                     bpl       xpos@
@@ -349,8 +357,7 @@ xpos@               cmpd      #HResMaxX
                     ble       xstore@
                     ldd       #HResMaxX
 xstore@             std       M.X,u
-                    ldb       11,s                 8 bit signed Y delta
-                    stb       $FF68
+                    ldb       10,s                 8 bit signed Y delta
                     bsr       DoBallistic
                     addd      M.Y,u
                     bpl       ypos@
@@ -365,15 +372,14 @@ ypos@               cmpd      #HResMaxY*2
                     ble       ystore@
                     ldd       #HResMaxY*2
 ystore@             std       M.Y,u
-                    lda       9,s                  button byte to return
-                    sta       $FF68
+                    lda       8,s                  button byte to return
                     clrb
                     leas      16,s
                     bra       finish@
 errorstack@         leas      16,s
 error@              clra
                     comb
-finish@             rts
+finish@             puls      y,pc
 
 ***
 * Mouse button(s) status check.
@@ -389,8 +395,8 @@ finish@             rts
 *          A, X, registers may be altered
 *
 * ERROR OUTPUT:  none
-; TODO make not lbsr
-SSMsBtn             lbsr       ReadPkt             returns usb button state in A
+SSMsBtn             lbsr      ReadPkt             returns usb button state in A
+                    pshs      a
                     clrb
                     bita      #%00000001
                     beq       notleftbtn@
@@ -399,21 +405,19 @@ notleftbtn@         bita      #000000110          treat middle as right too
                     beq       notrightbtn@
                     orb       #%00001100
 notrightbtn@        lda       M.Button,u          load prior state
-                    anda      #%00001100          test button 2
+                    anda      #%00000110          test button 2
                     beq       finish@             was not down, go finish
                     pshs      a
                     tfr       b,a
-* maybe conditional H6309 code for BEOR or BIEOR here?
                     eora      ,s+                 test if flipped
                     beq       finish@             has not release, go finish
                     orb       #%10000000          btn 2 was clicked and released
-                    pshs      b
-                    ldd       M.X,u
-                    cmpd      #HResMaxX/2
-                    puls      b
+                    ldx       M.X,u
+                    cmpx      #HResMaxX/2
                     bge       finish@             finish if on right side
                     orb       #%01000000          its on left so shift-click 
-finish@             stb       M.Button,u          store prior state
+finish@             puls      a
+                    sta       M.Button,u          store prior state
                     rts
 
 ***
