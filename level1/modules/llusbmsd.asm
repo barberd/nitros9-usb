@@ -183,8 +183,12 @@ clrloop@            sta       ,y+
                     bne       usbmanready@
                     pshs      u
                   IFGT    Level-1
+                  IFNE    H6309
+                    ldw       <D.Proc
+                  ELSE 
                     ldx       <D.Proc
                     pshs      x
+                  ENDC
                     ldx       <D.SysPrc
                     stx       <D.Proc
                   ENDC
@@ -192,8 +196,12 @@ clrloop@            sta       ,y+
                     leax      usbmanname,pcr
                     os9       F$Link
                   IFGT    Level-1
+                  IFNE    H6309
+                    stw       <D.Proc
+                  ELSE
                     puls      x
                     stx       <D.Proc
+                  ENDC
                   ENDC
                     bcs       linkfailed@
                     jsr       ,y                  call USBMan init routine

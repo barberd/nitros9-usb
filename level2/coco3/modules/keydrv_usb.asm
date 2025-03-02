@@ -355,8 +355,12 @@ KbdGetReport        pshs      x,y,u
                     leax      ,s
                   IFGT    Level-1
                     ldy       <D.USBManSubAddr
+                  IFNE    H6309
+                    ldw       D.Proc              get curr proc ptr, save in w
+                  ELSE
                     ldd       D.Proc              get curr proc ptr
                     pshs      d                   save on stack
+                  ENDC
                     ldd       D.SysPrc            get system process desc ptr
                     std       D.Proc              and make current proc
                   ELSE
@@ -364,8 +368,12 @@ KbdGetReport        pshs      x,y,u
                   ENDC
                     jsr       USBInTransfer,y
                   IFGT    Level-1
+                  IFNE    H6309
+                    stw       D.Proc              restore
+                  ELSE
                     puls      x                   get curr proc ptr
                     stx       D.Proc              restore
+                  ENDC
                   ENDC
                     pshs      cc
                     lda       1+USBITS.DataFlag,s
@@ -418,16 +426,24 @@ clrloop@            sta       ,u+
                     decb
                     bne       clrloop@
                   IFGT    Level-1
+                  IFNE    H6309
+                    ldw       <D.Proc
+                  ELSE
                     ldx       <D.Proc
                     pshs      x
+                  ENDC
                     ldx       <D.SysPrc
                     stx       <D.Proc
                   ENDC
                     leax      usbmanname,pcr
                     os9       F$Link
                   IFGT    Level-1
+                  IFNE    H6309
+                    stw       <D.Proc
+                  ELSE
                     puls      x
                     stx       <D.Proc
+                  ENDC
                   ENDC
                     bcs       error@
                     jsr       ,y                  call USBMan init routine
