@@ -116,10 +116,6 @@ name                fcs       /Boot/
 *       B  = error (Carry Set)
 *
 HWInit              * Set up USB and SCSI packet structure
-                   ifeq   Level-1
-                    lda   #'I
-                    sta   $FF68
-                   endc
                     clra
                     ldx   #localsize
                     leay  V.dCBWSignature,u
@@ -259,7 +255,6 @@ loop@               lda       ,y+
                     ldb       EndpointOut,pcr
                    else
                     ldb       EndpointOut
-                    stb       $FF68
                    endc
                     stb       CH376_DATAREG
                     bsr       WaitInt
@@ -276,7 +271,6 @@ TfrIn               ldb       #CH376_ISSUE_TKN_X
                     ldb       EndpointIn,pcr
                    else
                     ldb       EndpointIn
-                    stb       $FF68
                    endc
                     stb       CH376_DATAREG
                     bsr       WaitInt
