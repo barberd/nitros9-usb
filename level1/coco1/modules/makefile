@@ -19,6 +19,7 @@ CLOCKJVEMU      = -DRTCJVEmu=1
 TC3FLAGS        = $(AFLAGS) -DTC3=1 $(FLAGS)
 IDEFLAGS        = $(AFLAGS) -DIDE=1 $(FLAGS)
 SDFLAGS		= $(AFLAGS) -DCOCOSDC=1 -DITTYP=128 $(FLAGS)
+USBMSDFLAGS	= $(AFLAGS) -DUSBMSD=1 -DITTYP=145 $(FLAGS)
 
 DEPENDS		= ./makefile
 TPB		= $(3RDPARTY)/booters
@@ -28,10 +29,11 @@ BOOTERS		= boot_1773_6ms boot_1773_30ms \
 		boot_tc3 boot_ide boot_rom boot_dw_becker \
 		boot_dw_rs232pak boot_dw_directmodempak \
 		boot_dw_arduino boot_dw_38400 boot_dw_cocolink \
-		boot_sdc boot_dw_mmmpiu1 boot_dw_mmmpiu2 boot_emu
+		boot_sdc boot_dw_mmmpiu1 boot_dw_mmmpiu2 boot_emu \
+		boot_usbmsd
 BOOTTRACK	= rel $(BOOTERS)
 KERNEL		= krn krnp2 wbug
-SYSMODS		= ioman init sysgo_dd sysgo_h0 sysgo_rom rominfo rominfo_pak vectors
+SYSMODS		= ioman init sysgo_dd sysgo_h0 sysgo_rom rominfo rominfo_pak vectors usbman
 CLOCKS          = clock_60hz clock_50hz \
 		clock2_elim clock2_disto2 clock2_disto4 clock2_bnb \
                 clock2_smart clock2_harris clock2_cloud9 clock2_soft \
@@ -51,7 +53,8 @@ RBF		= rbf.mn \
 		dds0_tc3.dd s0_tc3.dd s1_tc3.dd s2_tc3.dd s3_tc3.dd s4_tc3.dd \
                 s5_tc3.dd s6_tc3.dd sh_tc3.dd \
 		ddsd0_cocosdc.dd sd0_cocosdc.dd sd1_cocosdc.dd \
-		emudsk.dr ddh0_emudsk.dd h0_emudsk.dd h1_emudsk.dd
+		emudsk.dr ddh0_emudsk.dd h0_emudsk.dd h1_emudsk.dd \
+		llusbmsd.dr ddu0_usbmsd.dd u0_usbmsd.dd u1_usbmsd.dd
 
 SCF		= scf.mn \
 		sc6551.dr vrn.dr scbbp.dr scbbt.dr scdwp.dr sspak.dr vtio.dr vtio_vga.dr \
@@ -91,6 +94,10 @@ covga.io: covdg.asm
 
 rominfo_pak: rominfo.asm
 	$(AS) $(ASOUT)$@ $< $(AFLAGS) -DROMPak=1
+
+# USB Mass Storage Device Booter
+boot_usbmsd: boot_usbmsd.asm
+	$(AS) $(ASOUT)$@ $< $(USBMSDFLAGS)
 
 # TC^3 SCSI Booter
 boot_tc3: boot_scsi.asm
@@ -187,6 +194,10 @@ emudsk.dr: emudsk.asm
 # TC^3 SCSI Driver
 lltc3.dr: llscsi.asm
 	$(AS) $(ASOUT)$@ $< $(TC3FLAGS)
+
+# llusbmsd Driver
+llusbmsd.dr: llusbmsd.asm
+	$(AS) $(ASOUT)$@ $< $(USBMSDFLAGS)
 
 # IDE Driver
 llide.dr: llide.asm
@@ -395,6 +406,16 @@ sd0_cocosdc.dd: superdesc.asm
 
 sd1_cocosdc.dd: superdesc.asm
 	$(AS) $(ASOUT)$@ $< $(SDFLAGS) -DITDRV=1
+
+# CoCo SDC Descriptors
+ddu0_usbmsd.dd: superdesc.asm
+	$(AS) $(ASOUT)$@ $< $(USBMSDFLAGS) -DDD=1
+
+u0_usbmsd.dd: superdesc.asm
+	$(AS) $(ASOUT)$@ $< $(USBMSDFLAGS) -DITDRV=0
+
+u1_usbmsd.dd: superdesc.asm
+	$(AS) $(ASOUT)$@ $< $(USBMSDFLAGS) -DITDRV=1
 
 # RFM descriptors
 ddy0.dd: rfmdesc.asm

@@ -42,6 +42,9 @@ KERNEL_ARDUINO	= $(MD)/rel $(MD)/krn $(MD)/krnp2 $(MD)/init \
 KERNEL_COCOSDC	= $(MD)/rel $(MD)/krn $(MD)/krnp2 $(MD)/init \
 		$(MD)/boot_sdc
 
+KERNEL_USBMSD	= $(MD)/rel $(MD)/krn $(MD)/krnp2 $(MD)/init \
+		$(MD)/boot_usbmsd
+
 IDE		= $(3PD)/ide
 SCSI		= $(3PD)/scsisys
 
@@ -89,6 +92,9 @@ RBARDUINO	= $(MD)/rbdw.dr $(MD)/dwio_arduino.sb \
 
 RBCOCOSDC	= $(MD)/rbsuper.dr $(MD)/llcocosdc.dr \
 		$(MD)/sd0_cocosdc.dd $(MD)/sd1_cocosdc.dd
+
+RBUSBMSD	= $(MD)/rbsuper.dr $(MD)/llusbmsd.dr \
+		$(MD)/u0_usbmsd.dd $(MD)/u1_usbmsd.dd
 
 SCDWV_NET  = $(MD)/n_scdwv.dd $(MD)/n1_scdwv.dd $(MD)/n2_scdwv.dd \
 		$(MD)/n3_scdwv.dd $(MD)/n4_scdwv.dd $(MD)/n5_scdwv.dd \
@@ -734,6 +740,34 @@ BOOTFILE_COVGA_COCOSDC	= $(MD)/ioman \
 		$(CLOCK60HZ) \
 		$(MD)/sysgo_dd
 
+BOOTFILE_COVDG_USBMSD	= $(MD)/ioman \
+		$(MD)/rbf.mn \
+		$(MD)/usbman \
+		$(RBUSBMSD) \
+		$(MD)/ddu0_usbmsd.dd \
+		$(FLOPPY_40D) \
+		$(MD)/scf.mn \
+		$(VTIO_COVDG) \
+		$(MD)/scbbp.dr $(MD)/p_scbbp.dd \
+		$(MD)/scbbt.dr $(MD)/t1_scbbt.dd \
+		$(PIPE) \
+		$(CLOCK60HZ) \
+		$(MD)/sysgo_dd
+
+BOOTFILE_COVGA_USBMSD	= $(MD)/ioman \
+		$(MD)/rbf.mn \
+		$(MD)/usbman \
+		$(RBUSBMSD) \
+		$(MD)/ddu0_usbmsd.dd \
+		$(FLOPPY_40D) \
+		$(MD)/scf.mn \
+		$(VTIO_COVGA) \
+		$(MD)/scbbp.dr $(MD)/p_scbbp.dd \
+		$(MD)/scbbt.dr $(MD)/t1_scbbt.dd \
+		$(PIPE) \
+		$(CLOCK60HZ) \
+		$(MD)/sysgo_dd
+
 BOOTFILE_CO42_COCOSDC	= $(MD)/ioman \
 		$(MD)/rbf.mn \
 		$(RBCOCOSDC) \
@@ -953,13 +987,13 @@ BOOTFILES	= bootfile_covdg bootfile_cohr bootfile_co42 bootfile_cowprs \
 		bootfile_mmmpiu1_headless bootfile_covdg_mmmpiu1_game bootfile_covdg_mmmpiu1 \
 		bootfile_cohr_mmmpiu1 bootfile_co42 bootfile_covga_mmmpiu1 bootfile_covga_mmmpiu1_game \
 		bootfile_mmmpiu2_headless bootfile_covdg_mmmpiu2_game bootfile_covdg_mmmpiu2 \
-		bootfile_cohr_mmmpiu2 bootfile_co42 bootfile_covga_mmmpiu2 bootfile_covga_mmmpiu2_game 
+		bootfile_cohr_mmmpiu2 bootfile_co42 bootfile_covga_mmmpiu2 bootfile_covga_mmmpiu2_game bootfile_covdg_usbmsd bootfile_covga_usbmsd
 		
 		
 
 KERNELS		= kernel_1773 kernel_dw kernel_becker kernel_arduino kernel_cocosdc \
 			kernel_rs232pak kernel_directmodempak kernel_cocolink \
-			kernel_mmmpiu1 kernel_mmmpiu2
+			kernel_mmmpiu1 kernel_mmmpiu2 kernel_usbmsd
 
 ALLOBJS		= $(BOOTFILES) $(KERNELS)
 
@@ -1115,6 +1149,12 @@ bootfile_covdg_cocosdc: $(BOOTFILE_COVDG_COCOSDC) $(DEPENDS)
 bootfile_covga_cocosdc: $(BOOTFILE_COVGA_COCOSDC) $(DEPENDS)
 	$(MERGE) $(BOOTFILE_COVGA_COCOSDC)>$@
 
+bootfile_covdg_usbmsd: $(BOOTFILE_COVDG_USBMSD) $(DEPENDS)
+	$(MERGE) $(BOOTFILE_COVDG_USBMSD)>$@
+
+bootfile_covga_usbmsd: $(BOOTFILE_COVGA_USBMSD) $(DEPENDS)
+	$(MERGE) $(BOOTFILE_COVGA_USBMSD)>$@
+
 bootfile_co42_cocosdc: $(BOOTFILE_CO42_COCOSDC) $(DEPENDS)
 	$(MERGE) $(BOOTFILE_CO42_COCOSDC)>$@
 
@@ -1200,6 +1240,10 @@ kernel_arduino: $(KERNEL_ARDUINO) $(DEPENDS)
 
 kernel_cocosdc: $(KERNEL_COCOSDC) $(DEPENDS)
 	$(MERGE) $(KERNEL_COCOSDC)>$@
+	$(PADROM) 4608 $@
+
+kernel_usbmsd: $(KERNEL_USBMSD) $(DEPENDS)
+	$(MERGE) $(KERNEL_USBMSD)>$@
 	$(PADROM) 4608 $@
 
 clean:

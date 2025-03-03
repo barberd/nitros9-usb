@@ -21,9 +21,11 @@ CMDS_D2		= copy del echo format merge os9gen prompt tmode
 
 CMDS_DW		= inetd telnet dw httpd
 
+CMDS_USB	= usb
+
 BASIC09		= basic09 runb gfx inkey syscall
 
-ALLOBJS		= $(CMDS) $(CMDS_D2) $(CMDS_DW) $(BASIC09)
+ALLOBJS		= $(CMDS) $(CMDS_D2) $(CMDS_DW) $(CMDS_USB) $(BASIC09)
 
 all:	$(DEPENDS) $(ALLOBJS)
 
@@ -57,6 +59,9 @@ showobjs_d2:
 
 showobjs_dw:
 	@$(ECHO) $(CMDS) $(CMDS_DW)
+
+showobjs_usb:
+	@$(ECHO) $(CMDS) $(CMDS_USB)
 
 showallobjs:
 	@$(ECHO) $(ALLOBJS)

@@ -157,6 +157,21 @@ irqsuccess@
                     lda       #CH376_GET_STATUS   clear any interrupts
                     sta       CH376_CMDREG
                     lda       CH376_DATAREG
+* Level 1 never sets up interrupt handling, so do that here
+                   IFEQ      Level-1  
+                    leax      >FIRQRtn,pcr
+                    stx       >D.FIRQ
+* Set PIA to fire FIRQ on falling edge of CART*
+                   IFNE      H6309
+                    aim       #$FC,>PIA1Base+3
+                    oim       #$01,>PIA1Base+3
+                   ELSE
+                    lda       >PIA1Base+3
+                    anda      #$FC
+                    ora       #$01
+                    sta       >PIA1Base+3
+                   ENDC
+                   ENDC
                     lda       >PIA1Base+2         clear latched interrupts
 * Register built-in Hub Drivers
                     leas      -8,s
@@ -193,7 +208,9 @@ irqsuccess@
                     lda       CH376_FLAGREG
                     bmi       noirq@
                     lbsr      IrqHandler
+                   IFEQ      Level-1
                     lda       >PIA1Base+2         reset any latched CART interrupt
+                   ENDC
 noirq@              clra                          ensure success
                     bra       InitEx@
 InitErrRemoveHubDriver@
@@ -301,7 +318,9 @@ WaitIrqResult
 manualintloop@      lda       CH376_FLAGREG
                     bmi       manualintloop@
                     lbsr      IrqHandler
+                   IFEQ      Level-1
                     lda       >PIA1Base+2         reset any latched CART interrupt
+                   ENDC
                     lda       USBIntStatus,u
                     bra       finish@
 multitasking@       
@@ -316,6 +335,18 @@ loop@               lda       USBIntStatus,u      sleep/loop until interrupt rec
                   ENDC
                     bra       loop@
 finish@             puls      u,x,pc
+
+                   IFEQ      Level-1             
+FIRQRtn             tst       ,s                  'Entire' bit of carry set?
+                    bmi       L003B               branch if so
+                    leas      -$01,s              make room on stack
+                    pshs      y,x,dp,b,a          save regs
+                    lda       $08,s               get original CC on stack
+                    stu       $07,s               save U
+                    ora       #$80                set 'Entire' bit
+                    pshs      a                   save CC
+L003B               jmp       [>D.SvcIRQ]         jump to IRQ service routine
+                   ENDC
 
 *
 * F$IRQ handler,
@@ -336,7 +367,11 @@ IrqHandler
                     beq       IRQSVC80
                     ldb       #S$Wake
                     os9       F$Send              signal to unblock
-IRQSVC80            clrb
+IRQSVC80            
+                   IFEQ      Level-1
+                    lda       >PIA1Base+2         clear FIRQ
+                   ENDC  
+                    clrb
                     rts
 
 * DirectDisconnect comes in from the IRQ Handler

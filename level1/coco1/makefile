@@ -40,6 +40,8 @@ BOOTFILE_COVDG_ARDUINO	= bootfiles/bootfile_covdg_arduino
 BOOTFILE_COVGA_ARDUINO	= bootfiles/bootfile_covga_arduino
 BOOTFILE_COVDG_COCOSDC	= bootfiles/bootfile_covdg_cocosdc
 BOOTFILE_COVGA_COCOSDC	= bootfiles/bootfile_covga_cocosdc
+BOOTFILE_COVDG_USBMSD	= bootfiles/bootfile_covdg_usbmsd
+BOOTFILE_COVGA_USBMSD	= bootfiles/bootfile_covga_usbmsd
 BOOTFILE_COHR_DS80	= bootfiles/bootfile_cohr_ds80
 BOOTFILE_CO42_DS80	= bootfiles/bootfile_co42_ds80
 BOOTFILE_COHR_DW	= bootfiles/bootfile_cohr_dw
@@ -59,12 +61,14 @@ KERNELFILE_MMMPIU1	= bootfiles/kernel_mmmpiu1
 KERNELFILE_MMMPIU2	= bootfiles/kernel_mmmpiu2
 KERNELFILE_ARDUINO	= bootfiles/kernel_arduino
 KERNELFILE_COCOSDC	= bootfiles/kernel_cocosdc
+KERNELFILE_USBMSD	= bootfiles/kernel_usbmsd
 DIRS		= cmds modules defs sys bootfiles bootroms wwwroot
 
 
 CMDS		= $(shell $(CD) cmds; make --no-print-directory showobjs)
 CMDS_D2		= $(shell $(CD) cmds; make --no-print-directory showobjs_d2)
 CMDS_DW		= $(shell $(CD) cmds; make --no-print-directory showobjs_dw)
+CMDS_USB	= $(shell $(CD) cmds; make --no-print-directory showobjs_usb)
 BOOTTRACK	= $(shell $(CD) modules; make --no-print-directory showboottrack)
 KERNEL		= $(shell $(CD) modules; make --no-print-directory showkernel)
 SYSMODS		= $(shell $(CD) modules; make --no-print-directory showsysmods)
@@ -141,6 +145,10 @@ DSKCOCOSDC	= $(DISTROVER)_cocosdc.dsk
 LDSKCOCOSDC	= $(DISTRONAME)_$(PORT)_cocosdc.dsk
 DSKVGACOCOSDC	= $(DISTROVER)_vga_cocosdc.dsk
 LDSKVGACOCOSDC	= $(DISTRONAME)_$(PORT)_vga_cocosdc.dsk
+DSKUSBMSD	= $(DISTROVER)_usbmsd.dsk
+LDSKUSBMSD	= $(DISTRONAME)_$(PORT)_usbmsd.dsk
+DSKVGAUSBMSD	= $(DISTROVER)_vga_usbmsd.dsk
+LDSKVGAUSBMSD	= $(DISTRONAME)_$(PORT)_vga_usbmsd.dsk
 
 DSKS		= $(DSKDW) $(DSKDWHEADLESS) $(DSKBECKER) $(DSKBECKERHEADLESS) \
 		$(DSKARDUINO) $(DSKARDUINOHEADLESS) $(DSK360K_1) $(DSK360K_2) \
@@ -150,7 +158,8 @@ DSKS		= $(DSKDW) $(DSKDWHEADLESS) $(DSKBECKER) $(DSKBECKERHEADLESS) \
 		$(DSKVGARS232PAK) $(DSKVGADIRECTMODEMPAK) $(DSKVGAARDUINO) \
 		$(DSKVGACOCOSDC) $(DSKVGADW) \
 		$(DSKMMMPIU1) $(DSKVGAMMMPIU1) $(DSKMMMPIU1HEADLESS) \
-		$(DSKMMMPIU2) $(DSKVGAMMMPIU2) $(DSKMMMPIU2HEADLESS)
+		$(DSKMMMPIU2) $(DSKVGAMMMPIU2) $(DSKMMMPIU2HEADLESS) \
+		$(DSKUSBMSD) $(DSKVGAUSBMSD)
 LDSKS		= $(LDSKDW) $(LDSKDWHEADLESS) $(LDSKBECKER) $(LDSKBECKERHEADLESS) \
 		$(LDSKARDUINO) $(LDSKARDUINOHEADLESS) $(LDSK360K_1) $(LDSK360K_2) \
 		$(LDSK720K) $(LDSKCOCOSDC) $(LDSKRS232PAK) $(LDSKDIRECTMODEMPAK) \
@@ -159,7 +168,8 @@ LDSKS		= $(LDSKDW) $(LDSKDWHEADLESS) $(LDSKBECKER) $(LDSKBECKERHEADLESS) \
 		$(LDSKVGARS232PAK) $(LDSKVGADIRECTMODEMPAK) $(LDSKVGAARDUINO) \
 		$(LDSKVGACOCOSDC) $(LDSKVGADW) \
 		$(LDSKMMMPIU1) $(LDSKVGAMMMPIU1) $(LDSKMMMPIU1HEADLESS) \
-		$(LDSKMMMPIU2) $(LDSKVGAMMMPIU2) $(LDSKMMMPIU2HEADLESS)
+		$(LDSKMMMPIU2) $(LDSKVGAMMMPIU2) $(LDSKMMMPIU2HEADLESS) \
+		$(LDSKUSBMSD) $(LDSKVGAUSBMSD)
 
 # Make all components
 all:
@@ -1116,6 +1126,116 @@ $(DSKVGACOCOSDC):
 	$(CD) scripts; $(CPL) mb* ../$@,NITROS9/$(DISTRO)/SCRIPTS
 	$(RM) $(LDSKVGACOCOSDC)
 	$(SOFTLINK) $@ $(LDSKVGACOCOSDC)
+
+$(DSKUSBMSD):
+	$(RM) $@
+	$(OS9FORMAT) -t1024 -q $@ -n"NitrOS-9/$(CPU) Level $(LEVEL)"
+	$(OS9GEN) $@ -b=$(BOOTFILE_COVDG_USBMSD) -t=$(KERNELFILE_USBMSD)
+	$(MAKDIR) $@,CMDS
+	$(MAKDIR) $@,SYS
+	$(MAKDIR) $@,DEFS
+	$(MAKDIR) $@,WWWROOT
+	$(CD) cmds; $(OS9COPY) $(sort $(CMDS_DW) $(CMDS_D2) $(CMDS_USB)) ../$@,CMDS
+	$(OS9ATTR_EXEC) $(foreach file,$(sort $(CMDS_DW) $(CMDS_D2) $(CMDS_USB)),$@,CMDS/$(file))
+	$(OS9RENAME) $@,CMDS/$(WHICHSHELL) shell
+	$(CD) sys; $(CPL) $(SYSTEXT) ../$@,SYS
+	$(OS9ATTR_TEXT) $(foreach file,$(SYSTEXT),$@,SYS/$(file))
+	$(CD) sys; $(OS9COPY) $(SYSBIN) ../$@,SYS
+	$(CD) wwwroot; $(OS9COPY) $(WWWROOT) ../$@,WWWROOT
+	$(OS9ATTR_TEXT) $(foreach file,$(WWWROOT),$@,WWWROOT/$(file))
+	$(CD) defs; $(CPL) $(DEFS) ../$@,DEFS
+	$(OS9ATTR_TEXT) $(foreach file,$(DEFS),$@,DEFS/$(file))
+	$(CPL) $(STARTUP_DW) $@,startup
+	$(OS9ATTR_TEXT) $@,startup
+	$(MAKDIR) $@,NITROS9
+	$(MAKDIR) $@,NITROS9/$(DISTRO)
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/CMDS
+	$(CD) cmds; $(OS9COPY) $(MODULECMDS) ../$@,NITROS9/$(DISTRO)/CMDS
+	$(OS9ATTR_EXEC) $(foreach file,$(MODULECMDS),$@,NITROS9/$(DISTRO)/CMDS/$(file))
+	$(OS9RENAME) $@,NITROS9/$(DISTRO)/CMDS/$(WHICHSHELL) shell
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES/BOOTTRACK
+	$(CD) modules; $(OS9COPY) $(BOOTTRACK) ../$@,NITROS9/$(DISTRO)/MODULES/BOOTTRACK
+	$(OS9ATTR_EXEC) $(foreach file,$(BOOTTRACK),$@,NITROS9/$(DISTRO)/MODULES/BOOTTRACK/$(file))
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES/KERNEL
+	$(CD) modules; $(OS9COPY) $(KERNEL) ../$@,NITROS9/$(DISTRO)/MODULES/KERNEL
+	$(OS9ATTR_EXEC) $(foreach file,$(KERNEL),$@,NITROS9/$(DISTRO)/MODULES/KERNEL/$(file))
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES/SYSMODS
+	$(CD) modules; $(OS9COPY) $(SYSMODS) ../$@,NITROS9/$(DISTRO)/MODULES/SYSMODS
+	$(OS9ATTR_EXEC) $(foreach file,$(SYSMODS),$@,NITROS9/$(DISTRO)/MODULES/SYSMODS/$(file))
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES/CLOCKS
+	$(CD) modules; $(OS9COPY) $(CLOCKS) ../$@,NITROS9/$(DISTRO)/MODULES/CLOCKS
+	$(OS9ATTR_EXEC) $(foreach file,$(CLOCKS),$@,NITROS9/$(DISTRO)/MODULES/CLOCKS/$(file))
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES/RBF
+	$(CD) modules; $(OS9COPY) $(RBF) ../$@,NITROS9/$(DISTRO)/MODULES/RBF
+	$(OS9ATTR_EXEC) $(foreach file,$(RBF),$@,NITROS9/$(DISTRO)/MODULES/RBF/$(file))
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES/SCF
+	$(CD) modules; $(OS9COPY) $(SCF) ../$@,NITROS9/$(DISTRO)/MODULES/SCF
+	$(OS9ATTR_EXEC) $(foreach file,$(SCF),$@,NITROS9/$(DISTRO)/MODULES/SCF/$(file))
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES/PIPE
+	$(CD) modules; $(OS9COPY) $(PIPE) ../$@,NITROS9/$(DISTRO)/MODULES/PIPE
+	$(OS9ATTR_EXEC) $(foreach file,$(PIPE),$@,NITROS9/$(DISTRO)/MODULES/PIPE/$(file))
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/BOOTLISTS
+	$(CD) bootlists; $(CPL) *.bl ../$@,NITROS9/$(DISTRO)/BOOTLISTS
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/SCRIPTS
+	$(CD) scripts; $(CPL) mb* ../$@,NITROS9/$(DISTRO)/SCRIPTS
+	$(RM) $(LDSKUSBMSD)
+	$(SOFTLINK) $@ $(LDSKUSBMSD)
+
+$(DSKVGAUSBMSD):
+	$(RM) $@
+	$(OS9FORMAT) -t1024 -q $@ -n"NitrOS-9/$(CPU) Level $(LEVEL)"
+	$(OS9GEN) $@ -b=$(BOOTFILE_COVGA_USBMSD) -t=$(KERNELFILE_USBMSD)
+	$(MAKDIR) $@,CMDS
+	$(MAKDIR) $@,SYS
+	$(MAKDIR) $@,DEFS
+	$(MAKDIR) $@,WWWROOT
+	$(CD) cmds; $(OS9COPY) $(sort $(CMDS_DW) $(CMDS_D2) $(CMDS_USB)) ../$@,CMDS
+	$(OS9ATTR_EXEC) $(foreach file,$(sort $(CMDS_DW) $(CMDS_D2) $(CMDS_USB)),$@,CMDS/$(file))
+	$(OS9RENAME) $@,CMDS/$(WHICHSHELL) shell
+	$(CD) sys; $(CPL) $(SYSTEXT) ../$@,SYS
+	$(OS9ATTR_TEXT) $(foreach file,$(SYSTEXT),$@,SYS/$(file))
+	$(CD) sys; $(OS9COPY) $(SYSBIN) ../$@,SYS
+	$(CD) wwwroot; $(OS9COPY) $(WWWROOT) ../$@,WWWROOT
+	$(OS9ATTR_TEXT) $(foreach file,$(WWWROOT),$@,WWWROOT/$(file))
+	$(CD) defs; $(CPL) $(DEFS) ../$@,DEFS
+	$(OS9ATTR_TEXT) $(foreach file,$(DEFS),$@,DEFS/$(file))
+	$(CPL) $(STARTUP_DW) $@,startup
+	$(OS9ATTR_TEXT) $@,startup
+	$(MAKDIR) $@,NITROS9
+	$(MAKDIR) $@,NITROS9/$(DISTRO)
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/CMDS
+	$(CD) cmds; $(OS9COPY) $(MODULECMDS) ../$@,NITROS9/$(DISTRO)/CMDS
+	$(OS9ATTR_EXEC) $(foreach file,$(MODULECMDS),$@,NITROS9/$(DISTRO)/CMDS/$(file))
+	$(OS9RENAME) $@,NITROS9/$(DISTRO)/CMDS/$(WHICHSHELL) shell
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES/BOOTTRACK
+	$(CD) modules; $(OS9COPY) $(BOOTTRACK) ../$@,NITROS9/$(DISTRO)/MODULES/BOOTTRACK
+	$(OS9ATTR_EXEC) $(foreach file,$(BOOTTRACK),$@,NITROS9/$(DISTRO)/MODULES/BOOTTRACK/$(file))
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES/KERNEL
+	$(CD) modules; $(OS9COPY) $(KERNEL) ../$@,NITROS9/$(DISTRO)/MODULES/KERNEL
+	$(OS9ATTR_EXEC) $(foreach file,$(KERNEL),$@,NITROS9/$(DISTRO)/MODULES/KERNEL/$(file))
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES/SYSMODS
+	$(CD) modules; $(OS9COPY) $(SYSMODS) ../$@,NITROS9/$(DISTRO)/MODULES/SYSMODS
+	$(OS9ATTR_EXEC) $(foreach file,$(SYSMODS),$@,NITROS9/$(DISTRO)/MODULES/SYSMODS/$(file))
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES/CLOCKS
+	$(CD) modules; $(OS9COPY) $(CLOCKS) ../$@,NITROS9/$(DISTRO)/MODULES/CLOCKS
+	$(OS9ATTR_EXEC) $(foreach file,$(CLOCKS),$@,NITROS9/$(DISTRO)/MODULES/CLOCKS/$(file))
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES/RBF
+	$(CD) modules; $(OS9COPY) $(RBF) ../$@,NITROS9/$(DISTRO)/MODULES/RBF
+	$(OS9ATTR_EXEC) $(foreach file,$(RBF),$@,NITROS9/$(DISTRO)/MODULES/RBF/$(file))
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES/SCF
+	$(CD) modules; $(OS9COPY) $(SCF) ../$@,NITROS9/$(DISTRO)/MODULES/SCF
+	$(OS9ATTR_EXEC) $(foreach file,$(SCF),$@,NITROS9/$(DISTRO)/MODULES/SCF/$(file))
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/MODULES/PIPE
+	$(CD) modules; $(OS9COPY) $(PIPE) ../$@,NITROS9/$(DISTRO)/MODULES/PIPE
+	$(OS9ATTR_EXEC) $(foreach file,$(PIPE),$@,NITROS9/$(DISTRO)/MODULES/PIPE/$(file))
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/BOOTLISTS
+	$(CD) bootlists; $(CPL) *.bl ../$@,NITROS9/$(DISTRO)/BOOTLISTS
+	$(MAKDIR) $@,NITROS9/$(DISTRO)/SCRIPTS
+	$(CD) scripts; $(CPL) mb* ../$@,NITROS9/$(DISTRO)/SCRIPTS
+	$(RM) $(LDSKVGAUSBMSD)
+	$(SOFTLINK) $@ $(LDSKVGAUSBMSD)
 
 $(DSKDWHEADLESS):
 	$(RM) $@
