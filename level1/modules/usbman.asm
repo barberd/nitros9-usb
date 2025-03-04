@@ -364,8 +364,8 @@ FIRQRtn             tst       ,s                  'Entire' bit of carry set?
                     stu       $07,s               save U
                     ora       #$80                set 'Entire' bit
                     pshs      a                   save CC
-                    lda       >PIA1Base+2         clear latched interrupts
-L003B               jmp       [>D.SvcIRQ]         jump to IRQ service routine
+L003B               lda       >PIA1Base+2         clear latched interrupts
+                    jmp       [>D.SvcIRQ]         jump to IRQ service routine
                    ENDC
 
 *
