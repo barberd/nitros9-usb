@@ -6,7 +6,7 @@ CardInit
 * Check if device exists first
                     lda       #CH376_RESET_ALL
                     sta       CH376_CMDREG
-                    lbsr      Delay               Datasheet says wait 40ms. Delay is 50ms
+                    lbsr      Delay               Datasheet says wait 40ms.
                     lda       #CH376_GET_STATUS   clear any interrupts
                     sta       CH376_CMDREG
                     lda       CH376_DATAREG
@@ -51,8 +51,6 @@ CardInit
 * Interrupts are off, so check flag register manually.
 * This is necessary while the system is still booting to check for
 * a device connection.
-                    bsr       Delay
-                    bsr       Delay
                     lda       CH376_FLAGREG
                     bmi       noirq@
                     lbsr      IrqHandler
@@ -68,7 +66,7 @@ InitErr@            puls      cc
 InitEx@             puls      d,x,y,u,pc
 
 Delay               pshs      x,cc
-                    ldx       #0
+                    ldx       #988*3
 w@                  leax      -1,x
                     bne       w@
                     puls      cc,x,pc
@@ -143,6 +141,7 @@ DirectPortReset
                     ldb       #CH376_GET_STATUS   clear any interrupts generated
                     stb       CH376_CMDREG
                     ldb       CH376_DATAREG
+                    lbsr      Delay
                     sta       CH376_CMDREG
                     ldb       #$06                set host mode, with SOF package
                     stb       CH376_DATAREG
@@ -153,7 +152,8 @@ DirectPortReset
                     lda       #CH376_GET_STATUS   clear any interrupts generated
                     sta       CH376_CMDREG
                     lda       CH376_DATAREG
-                    andcc     #^Carry
+                    lda       $FF22               clear PIA interrupt
+                    clrb
                     bra       finish@
 error@              comb
 finish@             puls      cc,d,x,pc
@@ -425,7 +425,6 @@ goodxfer1@
                     sta       USBDeviceProtocol,y
 * Load all strings here because some devices lock up if you
 * don't ask for them. Don't do anything with them.
-                    #lbsr     Delay
                     lda       USBDeviceId,y
                     ldb       5+USBDDIManufacturer,s
                     lbsr      GetString
@@ -457,8 +456,7 @@ loopdesc@           lda       ,-x
                     bcc       goodxfer2@
                     leas      22,s
                     lbra      error@
-goodxfer2@          lbsr      Delay
-                    ldd       5+USBCDWTotalLength,s get wTotalLength
+goodxfer2@          ldd       5+USBCDWTotalLength,s get wTotalLength
                     exg       a,b
                     std       USBDeviceConfigurationWLength,y store in record
                     leas      22,s
