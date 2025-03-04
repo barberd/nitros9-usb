@@ -151,14 +151,19 @@ clrloop@            sta       ,u+
                     leax      UIrqFlip,pcr
                     leay      IrqHandler,pcr
                     os9       F$IRQ
-                    bcc       irqsuccess@
-                    bra       InitErrClrMem@
-irqsuccess@
-                    lda       #CH376_GET_STATUS   clear any interrupts
-                    sta       CH376_CMDREG
-                    lda       CH376_DATAREG
+                   IFEQ      Level-1
+                    lbcs      InitErrClrMem@
+                   ELSE
+                    bcs       InitErrClrMem@
+                   ENDC
 * Level 1 never sets up interrupt handling, so do that here
                    IFEQ      Level-1  
+                   IFNE      H6309
+                    ldw       >D.FIRQ
+                   ELSE 
+                    ldx       >D.FIRQ
+                    pshs      x                   Store original D.FIRQ
+                   ENDC
                     leax      >FIRQRtn,pcr
                     stx       >D.FIRQ
 * Set PIA to fire FIRQ on falling edge of CART*
@@ -172,6 +177,9 @@ irqsuccess@
                     sta       >PIA1Base+3
                    ENDC
                    ENDC
+                    lda       #CH376_GET_STATUS   clear any interrupts
+                    sta       CH376_CMDREG
+                    lda       CH376_DATAREG
                     lda       >PIA1Base+2         clear latched interrupts
 * Register built-in Hub Drivers
                     leas      -8,s
@@ -195,6 +203,9 @@ irqsuccess@
                     ldb       CH376_DATAREG
                     cmpb      #CH376_CMD_RET_SUCCESS
                     bne       InitErrRemoveHubDriver@
+                   IFEQ       Level-1+H6309       6309 stores in W instead of stack
+                    leas      2,s                 remove original D.FIRQ from stack
+                   ENDC
                     puls      cc
                     leay      SvcTbl,pcr          register F$USBPollHubs system call
                     os9       F$SSvc
@@ -208,15 +219,21 @@ irqsuccess@
                     lda       CH376_FLAGREG
                     bmi       noirq@
                     lbsr      IrqHandler
-                   IFEQ      Level-1
                     lda       >PIA1Base+2         reset any latched CART interrupt
-                   ENDC
 noirq@              clra                          ensure success
                     bra       InitEx@
 InitErrRemoveHubDriver@
                     leax      HubProbe,pcr
                     lbsr      DeregisterDriver
 InitErrRemoveInt@
+                   IFEQ       Level-1
+                   IFNE       H6309
+                    stw       >D.FIRQ             restore original D.FIRQ
+                   ELSE
+                    puls      x
+                    stx       >D.FIRQ             restore original D.FIRQ
+                   ENDC
+                   ENDC
                     ldd       #CH376_FLAGREG
                     ldx       #0                  Y is still set from before
                     os9       F$IRQ
@@ -243,11 +260,13 @@ Delay1Tk            pshs      x                   (5) (4+)
                     cmpx      <D.SysPrc           system?
                     beq       hw@                 system cannot sleep
                     ldx       <D.AProcQ           Get active proc queue
+                  ELSE
+                    ldx       >D.AProcQ           Get active proc queue
+                  ENDC
                     beq       hw@                 if no waiting processes, do hardware loop
                     ldx       #1                  This is 1/60 second (16.6ms)
                     os9       F$Sleep
                     puls      x,pc
-                  ENDC
 hw@
                   IFEQ    Level-1
                   IFNE    H6309
@@ -273,13 +292,15 @@ Delay3Tk            pshs      x                   (5) (4+)
                     cmpx      <D.SysPrc           system?
                     beq       hw@                 system cannot sleep
                     ldx       <D.AProcQ           Get active proc queue
+                  ELSE
+                    ldx       >D.AProcQ           Get active proc queue
+                  ENDC
                     beq       hw@                 if no waiting processes, do hardware loop
                     ldx       #3                  This is 3/60 second (50ms)
                     os9       F$Sleep
                     cmpx      #0                  test if slept whole time
                     bne       hw@                 if not, revert to hw wait
                     puls      x,pc
-                  ENDC
 hw@
                   IFEQ    Level-1
                   IFNE    H6309
@@ -318,9 +339,7 @@ WaitIrqResult
 manualintloop@      lda       CH376_FLAGREG
                     bmi       manualintloop@
                     lbsr      IrqHandler
-                   IFEQ      Level-1
                     lda       >PIA1Base+2         reset any latched CART interrupt
-                   ENDC
                     lda       USBIntStatus,u
                     bra       finish@
 multitasking@       
@@ -330,9 +349,9 @@ loop@               lda       USBIntStatus,u      sleep/loop until interrupt rec
                     ldx       <D.Proc             Get current process pointer
                     cmpx      <D.SysPrc           system?
                     beq       loop@               system cannot sleep
+                  ENDC
                     ldx       #0                  Sleep until received Interrupt
                     os9       F$Sleep
-                  ENDC
                     bra       loop@
 finish@             puls      u,x,pc
 
@@ -345,6 +364,7 @@ FIRQRtn             tst       ,s                  'Entire' bit of carry set?
                     stu       $07,s               save U
                     ora       #$80                set 'Entire' bit
                     pshs      a                   save CC
+                    lda       >PIA1Base+2         clear latched interrupts
 L003B               jmp       [>D.SvcIRQ]         jump to IRQ service routine
                    ENDC
 
@@ -354,8 +374,7 @@ L003B               jmp       [>D.SvcIRQ]         jump to IRQ service routine
 * Input :
 *       A       = Status byte XOR flip
 *       U       = USBMan data area
-IrqHandler
-                    lda       #CH376_GET_STATUS
+IrqHandler          lda       #CH376_GET_STATUS
                     sta       CH376_CMDREG
                     lda       CH376_DATAREG
                     cmpa      #CH376_USB_INT_CONNECT
@@ -367,11 +386,7 @@ IrqHandler
                     beq       IRQSVC80
                     ldb       #S$Wake
                     os9       F$Send              signal to unblock
-IRQSVC80            
-                   IFEQ      Level-1
-                    lda       >PIA1Base+2         clear FIRQ
-                   ENDC  
-                    clrb
+IRQSVC80            clrb
                     rts
 
 * DirectDisconnect comes in from the IRQ Handler
@@ -518,9 +533,9 @@ spin@               pshs      cc
                     ldx       <D.Proc             Get current process pointer
                     cmpx      <D.SysPrc           system?
                     beq       spin@               system cannot sleep
+                  ENDC
                     ldx       #1
                     os9       F$Sleep
-                  ENDC
                     bra       spin@
 gotlock@
                     clr       USBIntStatus,u
@@ -538,9 +553,11 @@ skipsetaddr@
                     ldx       <D.Proc             Get current process pointer
                     cmpx      <D.SysPrc           system?
                     beq       done@
+                  ELSE
+                    ldx       >D.Proc             Get current process pointer
+                  ENDC
                     lda       P$ID,x
                     sta       USBWakePid,u
-                  ENDC
 done@               puls      d,x,u,pc
 
 * This function is normally called by functions that are called externally,
