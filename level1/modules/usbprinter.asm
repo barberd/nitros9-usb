@@ -45,6 +45,8 @@ V.TRY               rmb       2                   number of re-tries if printer 
 V.RTRY              rmb       1                   low nibble of parity=high byte of number of retries
 V.BUFF              rmb       $80                 room for 128 blocked processes
 USBPrinterDevTable  rmb       USBPrinterDevSize
+USBPrinterBuffer    rmb       64
+USBPrinterBufferFilled rmb       1
 size                equ       .
 
                     mod       eom,name,tylg,atrv,start,size
@@ -69,8 +71,8 @@ USBPrinterDevMatch  fdb       $0000               0 VendorId
                     fcb       $01                 InterfaceSubClass       Printers
                     fcb       $FF                 16 ClassMask
                     fcb       $FF                 SubClassMask
-                    fcb       $01                 18 InterfaceProtocol    Unidirectional
-                    fcb       $FF                 19 Mask
+                    fcb       $00                 18 InterfaceProtocol    Unidirectional
+                    fcb       $00                 19 Mask
 
 start               lbra      Init
                     lbra      Read
@@ -286,39 +288,51 @@ W020                tst       ,x+                 if not, find the first non-zer
                     endc
                     os9       F$Sleep             and go to sleep forever
                     puls      a                   restore character to be sent, and continue
+WriteChar           ldb       USBPrinterBufferFilled,u
+                    leay      USBPrinterBuffer,u
+                    sta       b,y
+                    incb
+                    stb       USBPrinterBufferFilled,u
+                    cmpb      USBPrinterDevTable+P.USBMaxPacketSizeOut,u
+                    beq       FlushBuff
+finish@             clrb
+                    rts
+
 *write character in A to printer
-WriteChar         tst         P.USBDeviceId,u     error if no printer found yet
-                  beq         error@
+
+FlushBuff           tst       USBPrinterDevTable+P.USBDeviceId,u     error if no printer found yet
+                    beq       error@
                   IFGT    Level-1
                     ldy       <D.USBManSubAddr
                   ELSE
                     ldy       >D.USBManSubAddr
                   ENDC
-                    leau      USBPrinterDevTable,u
 * Idea: check if USBEndpointIn is populated, and if so
 * then issue a GET_PORT_STATUS for the printer to get current status
 * and error out if not ready.
-                    pshs      a
-                    tfr       s,x
                     leas      -8,s
+                    leax      USBPrinterBuffer,u
                     stx       USBOTS.BufferPtr,s
-                    ldx       #1
-                    stx       USBOTS.BufferLength,s
-                    lda       P.USBDeviceId,u
-                    ldb       P.USBEndpointOut,u
+                    clra
+                    ldb       USBPrinterBufferFilled,u
+                    std       USBOTS.BufferLength,s
+                    lda       USBPrinterDevTable+P.USBDeviceId,u
+                    ldb       USBPrinterDevTable+P.USBEndpointOut,u
                     std       USBOTS.DeviceId,s
-                    lda       P.USBDataFlag,u
+                    lda       USBPrinterDevTable+P.USBDataFlag,u
                     sta       USBOTS.DataFlag,s
-                    lda       P.USBMaxPacketSizeOut,u
+                    lda       USBPrinterDevTable+P.USBMaxPacketSizeOut,u
                     sta       USBOTS.MaxPacketSize,s
                     tfr       s,x
                     jsr       USBOutTransfer,y
                     pshs      cc
                     lda       1+USBOTS.DataFlag,s
-                    sta       P.USBDataFlag,u
+                    sta       USBPrinterDevTable+P.USBDataFlag,u
                     puls      cc
-                    leas      9,s
-                    bcc       finish@
+                    leas      8,s
+                    bcs       error@
+                    clr       USBPrinterBufferFilled,u 
+                    bra       finish@
 error@              ldb       #E$NotRdy
 finish@             rts
 
@@ -414,6 +428,7 @@ L0173               comb
 
 Close               cmpa      #SS.Close           close the device?
                     bne       L0173
+                    lbra      FlushBuff           flush buffer
                     leax      V.BUFF,u            point to blocked process buffer
 
 C010                lda       1,x                 get next process number
