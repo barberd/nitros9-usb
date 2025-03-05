@@ -33,8 +33,10 @@ M.Button            rmb       1
 M.X                 rmb       2
 M.Y                 rmb       2
 M.DeviceId          rmb       1
-M.EndpointIn        rmb       1
-M.DataFlag          rmb       1
+* Packing Endpoint and DataFlag into a single byte here as JoyMem storage
+* is only 8 bytes
+M.EndpointDF        rmb       1
+M.MaxPacketSize     rmb       1
                     mod       eom,name,tylg,atrv,start,0
 
 name                fcs       /JoyDrv/
@@ -184,7 +186,6 @@ MouseProbe          pshs      x,y
                     bne       error@              We already have a mouse
                     lda       USBInterfaceDeviceId,y
                     sta       M.DeviceId,u
-                    clr       M.DataFlag,u
 * Start looking for endpoint here
 loop1@              lda       1,x                 descriptor type field
                     cmpa      #$05                $05 is endpoint type
@@ -195,9 +196,11 @@ loop1@              lda       1,x                 descriptor type field
                     bra       loop1@
 foundendpoint@
 * Record EndpointIn here
-                    lda       2,x
-                    anda      #$7F
-                    sta       M.EndpointIn,u
+                    lda       USBEDBEndpointAddress,x
+                    anda      #$0F
+                    sta       M.EndpointDF,u
+                    lda       USBEDWMaxPacketSize,x
+                    sta       M.MaxPacketSize,u 
 * Set boot protocol
                     leas      -13,s
                     leax      5,s
@@ -207,7 +210,7 @@ foundendpoint@
                     ldd       #$210B              set protocol
                     std       5,s
                     lda       USBInterfaceNum,y
-                    sta       9,s                 store Endpoint
+                    sta       9,s                 store Interface
                     ldd       #$0000
                     std       7,s                 a=0=boot protocol
                     stb       10,s
@@ -309,15 +312,17 @@ ReadPkt             pshs      y
                     tst       ,y                  This is USBLock in the USB manager memory area    
                     lbne      error@              Bail out if usb device is already locked          
                     leas      -16,s               make room on stack
-                    ldb       M.EndpointIn,u
+                    ldb       M.EndpointDF,u
+                    andb      #$0F
                     std       USBITS.DeviceId,s
                     leax      8,s
                     stx       USBITS.BufferPtr,s
-                    ldd       #$0008
+                    clra
+                    ldb       M.MaxPacketSize,u
                     std       USBITS.BufferLength,s
                     stb       USBITS.NakFlag,s    bubble up NAKs
-                    lda       M.DataFlag,u
-                    ldb       #$08                boot protocol is always 8
+                    lda       M.EndpointDF,u
+                    anda      #$F0
                     std       USBITS.DataFlag,s
                     tfr       s,x
                   IFGT    Level-1
@@ -347,8 +352,12 @@ ReadPkt             pshs      y
                   ENDC
                   ENDC
                     pshs      cc
-                    lda       1+USBITS.DataFlag,s
-                    sta       M.DataFlag,u
+                    lda       M.EndpointDF,u
+                    anda      #$0F
+                    pshs      a
+                    lda       2+USBITS.DataFlag,s
+                    ora       ,s+ 
+                    sta       M.EndpointDF,u
                     puls      cc
                     bcc       goodpacket@
                     cmpb      #$2A                 
@@ -374,7 +383,7 @@ xpos@               cmpd      #HResMaxX
                     ldd       #HResMaxX
 xstore@             std       M.X,u
                     ldb       10,s                 8 bit signed Y delta
-                    bsr       DoBallistic
+                    lbsr      DoBallistic
                     addd      M.Y,u
                     bpl       ypos@
                    IFNE       H6309
@@ -421,11 +430,9 @@ notleftbtn@         bita      #000000110          treat middle as right too
                     beq       notrightbtn@
                     orb       #%00001100
 notrightbtn@        lda       M.Button,u          load prior state
-                    anda      #%00000110          test button 2
+                    anda      #%00000010          test button 2
                     beq       finish@             was not down, go finish
-                    pshs      a
-                    tfr       b,a
-                    eora      ,s+                 test if flipped
+                    eora      ,s                  test if flipped
                     beq       finish@             has not release, go finish
                     orb       #%10000000          btn 2 was clicked and released
                     ldx       M.X,u
