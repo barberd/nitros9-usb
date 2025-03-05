@@ -158,12 +158,8 @@ clrloop@            sta       ,u+
                    ENDC
 * Level 1 never sets up interrupt handling, so do that here
                    IFEQ      Level-1  
-                   IFNE      H6309
-                    ldw       >D.FIRQ
-                   ELSE 
                     ldx       >D.FIRQ
                     pshs      x                   Store original D.FIRQ
-                   ENDC
                     leax      >FIRQRtn,pcr
                     stx       >D.FIRQ
 * Set PIA to fire FIRQ on falling edge of CART*
@@ -203,7 +199,7 @@ clrloop@            sta       ,u+
                     ldb       CH376_DATAREG
                     cmpb      #CH376_CMD_RET_SUCCESS
                     bne       InitErrRemoveHubDriver@
-                   IFEQ       Level-1+H6309       6309 stores in W instead of stack
+                   IFEQ       Level-1
                     leas      2,s                 remove original D.FIRQ from stack
                    ENDC
                     puls      cc
@@ -227,12 +223,8 @@ InitErrRemoveHubDriver@
                     lbsr      DeregisterDriver
 InitErrRemoveInt@
                    IFEQ       Level-1
-                   IFNE       H6309
-                    stw       >D.FIRQ             restore original D.FIRQ
-                   ELSE
                     puls      x
                     stx       >D.FIRQ             restore original D.FIRQ
-                   ENDC
                    ENDC
                     ldd       #CH376_FLAGREG
                     ldx       #0                  Y is still set from before
@@ -399,7 +391,11 @@ DirectDisconnect
                     stb       CH376_DATAREG
                     lbsr      Delay1Tk
                     ldb       CH376_DATAREG
+                   IFNE      H6309
+                    clrd
+                   ELSE
                     ldd       #0
+                   ENDC
                     lbsr      DetachDevice
                     clr       USBPortConnected,u
                     rts
@@ -446,7 +442,11 @@ DirectConnect
                     lbsr      DirectPortReset
                     bcs       error@
                     inc       USBPortConnected,u
+                   IFNE      H6309
+                    clrd
+                   ELSE
                     ldd       #0
+                   ENDC
                     lbra      AttachDevice
 error@              comb
                     rts
@@ -472,7 +472,11 @@ findloop@           cmpa      USBDeviceId,x
                     bne       findloop@
                     bra       error@
 found@              ldd       USBDeviceHub,x
+                   IFNE      H6309
+                    tstd
+                   ELSE
                     cmpd      #0
+                   ENDC
                     bne       hubdevice@
                     clra                          talking to device id 0
                     bsr       GetUSBLock
@@ -592,7 +596,11 @@ RegisterDriver
                     ldb       #USBMaxDrivers
 loop@               pshs      b
                     ldd       USBDriverDevMatchPtr,x
+                   IFNE      H6309
+                    tstd
+                   ELSE
                     cmpd      #0
+                   ENDC
                     puls      b
                     beq       foundslot@
                     decb
@@ -954,7 +962,11 @@ finditloop@         lda       USBInterfaceDeviceId,y
                     bra       error@              then error
 foundit@            lda       [1,s]               device id on bus
                     sta       USBInterfaceDeviceId,y
+                   IFNE      H6309
+                    clrd
+                   ELSE
                     ldd       #0                  initially set to no driver
+                   ENDC
                     std       USBInterfaceDriverRecord,y
                     lda       USBIDBInterfaceNumber,x interface number
                     sta       USBInterfaceNum,y
@@ -1100,18 +1112,30 @@ loop@
                     ldy       USBDriverDevMatchPtr,x this is location of devmatch
                     lbeq      next@               if this slot empty, move to next
                     ldd       USBDeviceVendorId,u Vendor ID
+                   IFNE      H6309
+                    andd      USBDevMatchVendorIdMask,y
+                   ELSE
                     anda      USBDevMatchVendorIdMask,y
                     andb      USBDevMatchVendorIdMask+1,y
+                   ENDC
                     cmpd      USBDevMatchVendorId,y
                     bne       next@
                     ldd       USBDeviceProductId,u Product ID
+                   IFNE      H6309
+                    andd      USBDevMatchProductIdMask,y
+                   ELSE
                     anda      USBDevMatchProductIdMask,y
                     andb      USBDevMatchProductIdMask+1,y
+                   ENDC
                     cmpd      USBDevMatchProductId,y
                     bne       next@
                     ldd       USBDeviceClass,u    DeviceClass and SubClass
+                   IFNE      H6309
+                    andd      USBDevMatchDeviceClassMask,y
+                   ELSE
                     anda      USBDevMatchDeviceClassMask,y
                     andb      USBDevMatchDeviceSubClassMask,y
+                   ENDC
                     cmpd      USBDevMatchDeviceClass,y
                     bne       next@
                     lda       USBDeviceProtocol,u DeviceProtocol
@@ -1121,8 +1145,12 @@ loop@
 * Done with device matching, now move on to interface matching
                     ldu       5,s                 load original 'y' interface record
                     ldd       USBInterfaceClass,u InterfaceClass and SubClass
+                   IFNE      H6309
+                    andd      USBDevMatchInterfaceClassMask,y
+                   ELSE
                     anda      USBDevMatchInterfaceClassMask,y
                     andb      USBDevMatchInterfaceSubClassMask,y
+                   ENDC
                     cmpd      USBDevMatchInterfaceClass,y
                     bne       next@
                     lda       USBInterfaceProtocol,u
@@ -1228,39 +1256,59 @@ skipnak@
                     lbsr      WaitIrqResult
                     cmpa      #CH376_USB_INT_SUCCESS
                     lbne      error@
+                   IFNE      H6309
+                    eim       #$80;USBITS.DataFlag,x
+                   ELSE
                     ldb       USBITS.DataFlag,x
                     eorb      #$80                flip and store flag for next time
                     stb       USBITS.DataFlag,x
+                   ENDC
 doread@
                     lda       #CH376_RD_USB_DATA0
                     sta       CH376_CMDREG
                     clra
                     ldb       CH376_DATAREG       D now contains num bytes to read
-                    pshs      d
+                    bne       readbuf@            non-zero, so go read it
+                    lbsr      FreeUSBLock
+                    bra       wrapup@
+readbuf@            pshs      d
 * check against buffer size
 * if too big, just error out entirely
                     cmpy      ,s
                     blt       sizeerr@
-                    tstb
-loop0@              beq       donepkt@
-                    lda       CH376_DATAREG
+                   IFNE      H6309
+                    subr      d,y
+                    pshsw
+                    tfr       d,w
+                    ldd       #CH376_DATAREG
+                    pshs      cc
+                    orcc      #IntMasks
+                    tfm       d,u+
+                    puls      cc
+                    pulsw
+                   ELSE
+loop0@              lda       CH376_DATAREG
                     sta       ,u+
                     leay      -1,y
                     decb
-                    bra       loop0@
+                    bne       loop0@
+                   ENDC
 donepkt@            lbsr      FreeUSBLock
                     puls      d
-                    tstb
-                    beq       wrapup@
                     cmpy      #0                  if buffer is full, then exit
                     beq       wrapup@
                     cmpb      USBITS.MaxPacketSize,x see if this was a full packet
                     lbeq      bigloop@            if so then loop for more to read
 wrapup@             ldd       USBITS.BufferLength,x
+                   IFNE      H6309
+                    subr      y,d
+                   ELSE
                     pshs      y
                     subd      ,s++
+                   ENDC
                     bra       finish@
-sizeerr@            leas      2,s                 get rid of size to read on stack
+sizeerr@            
+                    leas      2,s                 get rid of size to read on stack
                     lda       #E$BufSiz           give error code
 error@              lbsr      FreeUSBLock
                     comb
@@ -1320,19 +1368,35 @@ bigloop@
 * test against packet size
                     clra
                     ldb       USBOTS.MaxPacketSize,x
+                   IFNE      H6309
+                    cmpr      d,y
+                   ELSE
                     pshs      d
                     cmpy      ,s++
+                   ENDC
                     bge       doxfer@
                     tfr       y,d                 in case y is less than a packet size
 doxfer@
                     stb       CH376_DATAREG
                     tstb
                     beq       donedata@
+                   IFNE      H6309
+                    subr      d,y
+                    pshsw
+                    tfr       d,w
+                    ldd       #CH376_DATAREG
+                    pshs      cc
+                    orcc      #IntMasks
+                    tfm       u+,d
+                    puls      cc
+                    pulsw
+                   ELSE
 loop@               lda       ,u+
                     sta       CH376_DATAREG
                     leay      -1,y
                     decb
                     bne       loop@
+                   ENDC
 donedata@
                     ldb       #CH376_ISSUE_TKN_X
                     stb       CH376_CMDREG
@@ -1344,14 +1408,22 @@ donedata@
                     lbsr      FreeUSBLock
                     cmpa      #CH376_USB_INT_SUCCESS
                     bne       error@
+                   IFNE      H6309
+                    eim       #$40;USBOTS.DataFlag,x
+                   ELSE
                     ldb       USBOTS.DataFlag,x
                     eorb      #$40                flip and store flag for next time
                     stb       USBOTS.DataFlag,x
+                   ENDC
                     cmpy      #0                  if buffer is done, then exit
                     bne       bigloop@
 wrapup@             ldd       USBOTS.BufferLength,x
+                   IFNE      H6309
+                    subr      y,d
+                   ELSE
                     pshs      y
                     subd      ,s++
+                   ENDC
                     bra       finish@
 error@              comb
                     tfr       a,b
@@ -1425,7 +1497,11 @@ h2dnodata@
                     pshs      x,d
 * Create struct and call InTransfer for STATUS stage
                     leas      -9,s
+                   IFNE      H6309
+                    clrd
+                   ELSE
                     ldd       #0
+                   ENDC
                     std       USBITS.BufferPtr,s
                     std       USBITS.BufferLength,s
                     lda       USBCTS.DeviceId,x
@@ -1477,7 +1553,11 @@ d2hnodata@
                     pshs      x,d
 * Create struct and call OutTransfer for STATUS stage
                     leas      -8,s
+                   IFNE      H6309
+                    clrd
+                   ELSE
                     ldd       #0
+                   ENDC
                     std       USBOTS.BufferPtr,s
                     std       USBOTS.BufferLength,s
                     lda       USBCTS.DeviceId,x
@@ -1523,11 +1603,19 @@ finish@             puls      u,y,b,pc
 * Return with carry set if no change in ports
 PollHubPorts
                     pshs      x,d
+                   IFNE      H6309
+                    clrd
+                   ELSE
                     ldd       #0
+                   ENDC
                     subd      USBHubWMaxPacketSize,y make room on stack
 * Should probably add a check here that allocating this won't overflow
 * the stack, but most hubs only take 1 or 2 bytes as each port is one bit
+                   IFNE      H6309
+                    addr      d,s
+                   ELSE
                     leas      d,s                 wMaxPacketSize
+                   ENDC
                     leax      ,s
                     leas      -9,s                make room on stack
                     stx       USBITS.BufferPtr,s  pointer to buffer
@@ -1562,8 +1650,9 @@ goodvalue@          stb       USBITS.MaxPacketSize,s maxpacket
 goodxfer@
 * Parse bitmap here
                     tfr       s,x                 set x to top of stack
-                    clrb                          start with port 0
                     lda       ,x+                 load first byte
+                    rora                          Ignore Hub power status
+                    ldb       #1                  start with port 1
 loop0@              rora                          rotate bit 0 to carry
                     bcc       notthisport@        carry clear means no change
                     lbsr      HubProcessPortChange process port if changed
@@ -1575,10 +1664,18 @@ notbyteboundary@
                     cmpb      USBHubNumPorts,y    compare to number of ports
                     ble       loop0@              keep going for all ports
                     ldd       USBHubWMaxPacketSize,y restore stack
+                   IFNE      H6309
+                    addr      d,s
+                   ELSE
                     leas      d,s
+                   ENDC
                     bra       finish@
 error@              ldd       USBHubWMaxPacketSize,y restore stack
+                   IFNE      H6309
+                    addr      d,s
+                   ELSE
                     leas      d,s
+                   ENDC
                     comb
 finish@             puls      x,d,pc
 
@@ -1638,7 +1735,11 @@ mergeclear@         leas      -13,s               merge in from SetPortFeature
                     sta       USBCTS.DeviceId,s
                     lda       #$23                See USB 2.0 Spec 11.24.2.2
                     sta       5,s                 bmRequestType
+                   IFNE      H6309
+                    clrd
+                   ELSE
                     ldd       #0
+                   ENDC
                     std       11,s                wLength
                     sta       8,s                 wValue(H)
                     sta       10,s                wIndex(H)
@@ -1665,8 +1766,13 @@ retry@              lbsr      Delay1Tk
                     bcc       goodxfer@
                     leas      4,s
                     bra       error@
-goodxfer@           lda       #$10                $10 is port_reset done
+goodxfer@           
+                   IFNE      H6309
+                    tim       #$10;2,s
+                   ELSE
+                    lda       #$10                $10 is port_reset done
                     bita      2,s
+                   ENDC
                     beq       retry@              loop until port reset done
                     leas      4,s
                     lda       #20
@@ -1713,17 +1819,26 @@ clearportconnchange@
                     lbsr      ClearPortFeature
                     bcs       error@
 noportconnectionchange@
+                   IFNE      H6309
+                    tim       #$02;2,s
+                   ELSE
                     lda       #$02                C_PORT_ENABLE
                     bita      2,s
+                   ENDC
                     beq       noportenable@
-                    *         This                is just saying if the port is enabled or not
-                    *         so                  don't handle connection/disconnection events here
-                    *         that                is handled with C_PORT_CONNECTION instead
+* This is just saying if the port is enabled or not
+* so don't handle connection/disconnection events here
+* that is handled with C_PORT_CONNECTION instead
                     lda       #17
                     lbsr      ClearPortFeature
                     bcs       error@
-noportenable@       lda       #$04                C_PORT_SUSPEND
+noportenable@       
+                   IFNE      H6309
+                    tim       #$04;2,s
+                   ELSE
+                    lda       #$04                C_PORT_SUSPEND
                     bita      2,s
+                   ENDC
                     beq       noportsuspend@
 * Just clearing the status, not doing anything else
 * as support for suspending devices is not (yet) implemented in this
@@ -1798,9 +1913,13 @@ found@
                     sta       6,S                 bRequest
                     ldd       #$0029
                     std       7,S                 wValue
+                   IFNE      H6309
+                    clrd
+                   ELSE
                     ldd       #0
+                   ENDC
                     std       9,S                 wIndex
-                    ldd       #$0800
+                    lda       #$08
                     std       11,S                wLength
                     leax      5,S
                     stx       USBCTS.SetupPktPtr,S
