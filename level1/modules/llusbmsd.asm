@@ -265,7 +265,6 @@ loop1@              lda       USBDescriptorType,x
 foundendpoint@      lda       USBEDBEndpointAddress,x
                     bpl       endpout@
 * record EndpointIn here
-                    anda      #$7F
                     sta       DT.USBEndpointIn,u  store endpoint in table
                     bsr       FindMaxPacket
                     stb       DT.USBMaxPacketSizeIn,u store MaxPacketSizeIn
