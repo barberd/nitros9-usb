@@ -215,7 +215,7 @@ fillcache@          stb       V.SCSIPrm1,u        ; high byte LSN
                    IFGT       Level-1
                     lbne      Crash
                    ELSE 
-                    lbne      StrCrash
+                    lbne      StackCrash
                    ENDC
                     * use saved 'odd' bit on which half to transfer.
 skipread@           ldx       blockloc,u          get address of buffer to fill
@@ -299,7 +299,7 @@ WaitInt             ldb       CH376_FLAGREG
 
 
                    IFEQ      Level-1
-StrCrash            leas     1,s
+StackCrash          leas     1,s                  clear saved CC from stack
                    ENDC
 Crash
                    IFGT      Level-1
