@@ -137,6 +137,8 @@ entry               equ       *
 * Exit: A = key pressed
 ReadKys             pshs      dp
                     leas      -8,s
+                    tst       UsbKbd.DeviceId,u
+                    lbeq      nokey@
                     tfr       s,x
                     lbsr      KbdGetReport
                     tfr       d,y
@@ -309,7 +311,6 @@ nokey@              clra
 keeplkey@
                     sta       <G.CapLok
                     ldb       #$FF
-                    #puls     cc
                     andcc     #Negative
                     bra       finish@
 wrapup@             ldb       <G.AltDwn
@@ -320,8 +321,7 @@ wrapup@             ldb       <G.AltDwn
                     bhs       doalt@              skip to doalt if not a capital letter
                     ora       #$20                convert capitals to lower case
 doalt@              ora       #$80
-wrapend@            #puls     cc
-                    andcc     #^Negative
+wrapend@            andcc     #^Negative
 finish@             leas      8,s
                     puls      dp
                     rts
@@ -340,8 +340,6 @@ KbdGetReport        pshs      x,y,u
 * just bailing out here if USB is locked.
                     tst       ,y                  This is USBLock in the USB manager memory area
                     bne       error@              Bail out if usb device is already locked
-                    tst       UsbKbd.DeviceId,u
-                    beq       error@
                     leas      -9,s
                     stx       USBITS.BufferPtr,s
                     ldd       #$0008
@@ -355,12 +353,8 @@ KbdGetReport        pshs      x,y,u
                     leax      ,s
                   IFGT    Level-1
                     ldy       <D.USBManSubAddr
-                  IFNE    H6309
-                    ldw       D.Proc              get curr proc ptr, save in w
-                  ELSE
                     ldd       D.Proc              get curr proc ptr
                     pshs      d                   save on stack
-                  ENDC
                     ldd       D.SysPrc            get system process desc ptr
                     std       D.Proc              and make current proc
                   ELSE
@@ -368,12 +362,8 @@ KbdGetReport        pshs      x,y,u
                   ENDC
                     jsr       USBInTransfer,y
                   IFGT    Level-1
-                  IFNE    H6309
-                    stw       D.Proc              restore
-                  ELSE
                     puls      x                   get curr proc ptr
                     stx       D.Proc              restore
-                  ENDC
                   ENDC
                     pshs      cc
                     lda       1+USBITS.DataFlag,s
@@ -388,6 +378,8 @@ finish@             puls      u,x,y,pc
 * keyboard.
 * Exit: A = Function keys pressed (Bit 0 = F1, Bit 2 = F2)
 FuncKeys            leas      -8,s
+                    tst       UsbKbd.DeviceId,u
+                    beq       error@
                     tfr       s,x
                     lbsr      KbdGetReport
                     bcs       error@
@@ -408,8 +400,7 @@ notf2@
                     leas      1,s
                     bra       finish@
 error@              clra
-finish@             #puls     cc
-                    leas      8,s
+finish@             leas      8,s
                     rts
 
 Init
@@ -426,24 +417,16 @@ clrloop@            sta       ,u+
                     decb
                     bne       clrloop@
                   IFGT    Level-1
-                  IFNE    H6309
-                    ldw       <D.Proc
-                  ELSE
                     ldx       <D.Proc
                     pshs      x
-                  ENDC
                     ldx       <D.SysPrc
                     stx       <D.Proc
                   ENDC
                     leax      usbmanname,pcr
                     os9       F$Link
                   IFGT    Level-1
-                  IFNE    H6309
-                    stw       <D.Proc
-                  ELSE
                     puls      x
                     stx       <D.Proc
-                  ENDC
                   ENDC
                     bcs       error@
                     jsr       ,y                  call USBMan init routine
@@ -487,7 +470,6 @@ loop1@              lda       1,x                 descriptor type field
 foundendpoint@
 * Record EndpointIn here
                     lda       2,x
-                    anda      #$7F
                     sta       UsbKbd.EndpointIn,u
 * Set boot protocol
                     leas      -13,s
