@@ -30,7 +30,7 @@ edition             set       0
                     org       0
 size                equ       .
 
-name                fcs       /Usb/
+name                fcs       /usb/
                     fcb       edition
 
 start               os9       F$USBPollHubs
