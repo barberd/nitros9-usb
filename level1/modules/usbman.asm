@@ -1266,6 +1266,12 @@ skipnak@
                     lda       ,s                  grab transaction attribute off stack
                     sta       CH376_DATAREG
                     lbsr      WaitIrqResult
+* Not sure just ignoring it is the right behavior when getting a DATA0/DATA1 sync 
+* error. But this works well with hubs that do not reset properly.
+                    cmpa      #$2B                Handle DATA1 sync errors
+                    beq       skipflip@
+                    cmpa      #$23                Handle DATA0 sync errors
+                    beq       skipflip@
                     cmpa      #CH376_USB_INT_SUCCESS
                     lbne      error@
                    IFNE      H6309
@@ -1275,7 +1281,7 @@ skipnak@
                     eorb      #$80                flip and store flag for next time
                     stb       USBITS.DataFlag,x
                    ENDC
-                    lda       #CH376_RD_USB_DATA0
+skipflip@           lda       #CH376_RD_USB_DATA0
                     sta       CH376_CMDREG
                     clra
                     ldb       CH376_DATAREG       D now contains num bytes to read
