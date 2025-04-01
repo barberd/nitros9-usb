@@ -30,7 +30,7 @@ BOOTERS		= boot_1773_6ms boot_1773_30ms \
 		boot_dw_cocolink boot_dw_mmmpiu1 boot_dw_mmmpiu2 boot_emu boot_usbmsd
 BOOTTRACK	= rel_32 rel_40 rel_80 rel_32_50hz rel_40_50hz rel_80_50hz $(BOOTERS) krn
 KERNEL		= krnp2 krnp3_perr krnp4_regdump ccbkrn
-SYSMODS		= ioman init sysgo_h0 sysgo_dd sysgo_rom sysgo_bd rominfo vectors usbman
+SYSMODS		= ioman init sysgo_h0 sysgo_dd sysgo_rom sysgo_bd rominfo vectors usbman usbman-nohubcode
 CLOCKS		= clock_60hz clock_50hz \
 		clock2_elim clock2_disto2 clock2_disto4 clock2_bnb \
 		clock2_smart clock2_harris clock2_cloud9 clock2_soft \
@@ -107,6 +107,10 @@ boot_usbmsd: boot_usbmsd.asm
 # VTIO with External IDE Descriptors
 vtio-extkeydrv.dr: vtio.asm
 	$(AS) $(AFLAGS) $(ASOUT)$@ $< -DEXTERNKEYDRV=1
+
+# USBMan without Hub Drivers, saves ~782 bytes
+usbman-nohubcode: usbman.asm
+	$(AS) $(AFLAGS) $(ASOUT)$@ $< -DNOHUBCODE=1
 
 keydrv_usb.sb: keydrv_usb.asm
 	$(AS) $(AFLAGS) $(ASOUT)$@ $< -DEXTERNKEYDRV=1

@@ -40,7 +40,9 @@ USBPortConnected    rmb       1
 USBDeviceTable      rmb       USBDeviceRecLength*USBMaxDevices
 USBInterfaceTable   rmb       USBInterfaceRecLength*USBMaxInterfaces
 USBDriverTable      rmb       USBDriverRecLength*USBMaxDrivers
+                   IFEQ      NOHUBCODE
 USBHubTable         rmb       USBMaxHubs*USBHubRecLength
+                   ENDC
 USBDeviceIdCache    rmb       1
 USBNakRetryCache    rmb       1
 USBMemSize          equ       .
@@ -56,6 +58,7 @@ name                fcs       /USBMan/
 UIrqFlip            fcb       $80
 UIrqMask            fcb       $80
 UIrqPriority        fcb       $C0
+                   IFEQ      NOHUBCODE
 HubDevMatch         fdb       $0000               0 VendorId
                     fdb       $0000               2 Mask
                     fdb       $0000               4 ProductId
@@ -72,12 +75,13 @@ HubDevMatch         fdb       $0000               0 VendorId
                     fcb       $FF                 17 SubClassMask
                     fcb       $00                 18 InterfaceProtocol
                     fcb       $FF                 19 Mask
+                   ENDC
 
 DeviceDesc          fcb       $80                 bmRequestType
                     fcb       $06                 bRequest
                     fdb       $0001               wValue
                     fdb       $0000               wIndex
-                    fdb       $0800               wLength (08 bytes)
+                    fdb       $4000               wLength (64 bytes)
 
 ConfigDesc          fcb       $80                 bmRequestType
                     fcb       $06                 bRequest
@@ -86,9 +90,11 @@ ConfigDesc          fcb       $80                 bmRequestType
 *These 2 bytes would normally be included but is replaced by routines
 *                fdb     $0800                wLength (08 bytes)
 
+                   IFEQ      NOHUBCODE
 SvcTbl              fcb       F$USBPollHubs
                     fdb       PollHubs-*-2
                     fcb       $80
+                   ENDC
 
 start               bra       Init
                     nop
@@ -100,7 +106,6 @@ start               bra       Init
                     lbra      ClearStall
                     lbra      SetConfiguration
                     lbra      ResetDevice
-                    lbra      PollHubs
 
 * initialize ch376
 Init
@@ -177,6 +182,7 @@ clrloop@            sta       ,u+
                     sta       CH376_CMDREG
                     lda       CH376_DATAREG
                     lda       >PIA1Base+2         clear latched interrupts
+                   IFEQ      NOHUBCODE
 * Register built-in Hub Drivers
                     leas      -8,s
                     leax      HubDevMatch,pcr
@@ -190,6 +196,7 @@ clrloop@            sta       ,u+
                     lbsr      RegisterDriver
                     leas      8,s
                     bcs       InitErrRemoveInt@
+                   ENDC
 * Now set chip to USB Host Mode
                     lda       #CH376_SET_USB_MODE
                     sta       CH376_CMDREG
@@ -203,15 +210,16 @@ clrloop@            sta       ,u+
                     leas      2,s                 remove original D.FIRQ from stack
                    ENDC
                     puls      cc
+                   IFEQ      NOHUBCODE
                     leay      SvcTbl,pcr          register F$USBPollHubs system call
                     os9       F$SSvc
+                   ENDC
                     tfr       cc,a
                     anda      #IntMasks
                     beq       noirq@
 * Interrupts are off, so check flag register manually.
 * This is necessary while the system is still booting to check for
 * a device connection.
-                    bsr       Delay3Tk
                     lda       CH376_FLAGREG
                     bmi       noirq@
                     lbsr      IrqHandler
@@ -219,8 +227,10 @@ clrloop@            sta       ,u+
 noirq@              clra                          ensure success
                     bra       InitEx@
 InitErrRemoveHubDriver@
+                   IFEQ      NOHUBCODE
                     leax      HubProbe,pcr
                     lbsr      DeregisterDriver
+                   ENDC
 InitErrRemoveInt@
                    IFEQ       Level-1
                     puls      x
@@ -415,7 +425,7 @@ DirectPortReset
                     ldb       #CH376_GET_STATUS   clear any interrupts generated
                     stb       CH376_CMDREG
                     ldb       CH376_DATAREG
-                    lbsr      Delay1Tk
+                    lbsr      Delay1Tk            This should be 10ms for USB reset
                     sta       CH376_CMDREG
                     ldb       #$06                set host mode, with SOF package
                     stb       CH376_DATAREG
@@ -437,7 +447,7 @@ finish@             puls      cc,d,x,pc
 * the only device in play right now...so don't worry about getting a USB Lock
 DirectConnect
                     tst       USBPortConnected,u
-                    *         Error               because we got a second connection event before a disconnect
+* Error because we got a second connection event before a disconnect
                     bne       error@
                     lbsr      DirectPortReset
                     bcs       error@
@@ -477,12 +487,9 @@ found@              ldd       USBDeviceHub,x
                    ELSE
                     cmpd      #0
                    ENDC
-                    bne       hubdevice@
-                    clra                          talking to device id 0
-                    bsr       GetUSBLock
-                    lbsr      DirectPortReset
-                    bra       cont@
-hubdevice@          *find     Hub                 record in Y
+                   IFEQ      NOHUBCODE
+                    beq       rootdev@
+* find Hub record in Y
                     pshs      y,b
                     leay      USBHubTable,u
                     ldb       #USBMaxHubs
@@ -499,6 +506,11 @@ hfound@             puls      b
                     puls      y
                     clra
                     bsr       GetUSBLock
+                    bra       cont@
+                   ENDC
+rootdev@            clra                          talking to device id 0
+                    bsr       GetUSBLock
+                    lbsr      DirectPortReset
 cont@
                     lda       #CH376_SET_ADDRESS
                     sta       CH376_CMDREG
@@ -806,12 +818,11 @@ foundslot0@
                     lbsr      FreeUSBLock
                     cmpa      #CH376_USB_INT_SUCCESS
                     lbne      error@
-                    lbsr      Delay3Tk
 * Now, get first 8 bytes to get bMaxPacketSize0
-                    lda       #$08
-                    sta       USBDeviceMaxPacketSize,y store 8 byte min temporarily
+                    lda       #64
+                    sta       USBDeviceMaxPacketSize,y store 64 byte min temporarily because Windows and Linux do it this way so least likely to run into issues with a non-standard device
                     leax      DeviceDesc,pcr
-                    leas      -13,s
+                    leas      -69,s
                     stx       USBCTS.SetupPktPtr,s
                     leax      5,s
                     stx       USBCTS.BufferPtr,s
@@ -821,10 +832,10 @@ foundslot0@
                     leax      ,s
                     lbsr      ControlTransfer
                     bcc       goodxfer0@
-                    leas      13,s
+                    leas      69,s
                     lbra      error@
 goodxfer0@          ldb       5+USBDDBMaxPacketSize0,s load bMaxPacketSize0 here
-                    leas      13,s
+                    leas      69,s
                     stb       USBDeviceMaxPacketSize,y store in device record
 * Next, get the full record now that we know the bMaxPacketSize0
                     ldd       #$1200              device descriptors always 18 bytes
@@ -860,7 +871,6 @@ goodxfer1@
                     sta       USBDeviceProtocol,y
 * Load all strings here because some devices lock up if you
 * don't ask for them. Don't do anything with them.
-                    lbsr      Delay3Tk
                     lda       USBDeviceId,y
                     ldb       5+USBDDIManufacturer,s
                     lbsr      GetString
@@ -869,7 +879,6 @@ goodxfer1@
                     ldb       5+USBDDISerialNumber,s
                     lbsr      GetString
                     leas      31,s
-                    lbsr      Delay3Tk
 * Now collect configuration and store interfaces
 * Collect just first 9 bytes to get wTotalLength
 * To allocate enough room for entire collection
@@ -893,7 +902,7 @@ loopdesc@           lda       ,-x
                     bcc       goodxfer2@
                     leas      22,s
                     lbra      error@
-goodxfer2@          lbsr      Delay3Tk
+goodxfer2@
                     ldd       5+USBCDWTotalLength,s get wTotalLength
                     exg       a,b
                     std       USBDeviceConfigurationWLength,y store in record
@@ -1181,6 +1190,9 @@ error@              comb                          error if no driver found
 finish@             puls      u,y,x,d,pc
 
 * Clear Stall condition on endpoint
+* This is a shortcut for a ControlTransfer with a Endpoint Request SETUP Packet
+* for a ClearFeature with ENDPOINT_HALT (see USB 2.0 Spec pages 252-256)
+* This also resets the data toggle bit to 0 even if not stalled.
 * Input: DeviceId in A, EndpointId in B (bit 7 high if input endpoint)
 * Output: Carry clear if success, set if error
 ClearStall
@@ -1263,7 +1275,6 @@ skipnak@
                     eorb      #$80                flip and store flag for next time
                     stb       USBITS.DataFlag,x
                    ENDC
-doread@
                     lda       #CH376_RD_USB_DATA0
                     sta       CH376_CMDREG
                     clra
@@ -1277,6 +1288,7 @@ readbuf@            pshs      d
                     cmpy      ,s
                     blt       sizeerr@
                    IFNE      H6309
+* TFM results in 70% time savings compared to an LD loop for 64 bytes.
                     subr      d,y
                     pshsw
                     tfr       d,w
@@ -1381,6 +1393,7 @@ doxfer@
                     tstb
                     beq       donedata@
                    IFNE      H6309
+* TFM results in 70% time savings compared to an LD loop for 64 bytes.
                     subr      d,y
                     pshsw
                     tfr       d,w
@@ -1447,14 +1460,29 @@ ControlTransfer
                     lda       #CH376_WR_HOST_DATA
                     sta       CH376_CMDREG
                     ldu       USBCTS.SetupPktPtr,x
-                    ldb       #8
-                    stb       CH376_DATAREG
-loop0@              beq       donesetuppacket@
-                    lda       ,u+
-                    sta       CH376_DATAREG
-                    decb
-                    bra       loop0@
-donesetuppacket@
+                   IFNE      H6309   
+* TFM results in 36% time savings compared to an LD loop for 8 bytes.
+* If anyone is curious, TFM and an LD loop tie at 4 bytes
+* due to the overhead of masking interrupts, saving W on the stack, etc.
+*                                                     65 cycles
+                    pshsw                                  6
+                    ldw       #$0008                       4
+                    stf       CH376_DATAREG                5
+                    ldd       #CH376_DATAREG               3
+                    pshs      cc                           4
+                    orcc      #IntMasks                    3
+                    tfm       u+,d                         6+3*8=30
+                    puls      cc                           4
+                    pulsw                                  6
+                   ELSE
+*                                                126/101 (6809/6309) cycles
+                    ldb       #8                           2
+                    stb       CH376_DATAREG                4/3
+loop0@              lda       ,u+                          6/5 \ 
+                    sta       CH376_DATAREG                4/3  \  loop 8 times
+                    decb                                   2/1  /  for 120/96 cycles
+                    bne       loop0@                       3   / 
+                   ENDC
                     lda       #CH376_ISSUE_TKN_X
                     sta       CH376_CMDREG
                     clrb
@@ -1505,7 +1533,7 @@ h2dnodata@
                     std       USBITS.BufferPtr,s
                     std       USBITS.BufferLength,s
                     lda       USBCTS.DeviceId,x
-                    clrb
+                    clrb                          endpoint is 0
                     std       USBITS.DeviceId,s
                     stb       USBITS.NakFlag,s    NAK behavior default
                     lbsr      GetDeviceRec
@@ -1537,7 +1565,7 @@ dev2host@
                     ldd       USBCTS.BufferPtr,x
                     std       USBITS.BufferPtr,s  pointer to buffer
                     lda       USBCTS.DeviceId,x
-                    clrb
+                    clrb                          endpoint is 0
                     std       USBITS.DeviceId,s   device and endpoint
                     stb       USBITS.NakFlag,s    nak behavior default
                     lbsr      GetDeviceRec
@@ -1561,7 +1589,7 @@ d2hnodata@
                     std       USBOTS.BufferPtr,s
                     std       USBOTS.BufferLength,s
                     lda       USBCTS.DeviceId,x
-                    clrb
+                    clrb                          endpoint is 0
                     std       USBOTS.DeviceId,s
                     lbsr      GetDeviceRec
                     ldb       USBDeviceMaxPacketSize,x
@@ -1578,6 +1606,7 @@ finish@
                     andcc     #^Carry
                     puls      u,pc
 
+                   IFEQ      NOHUBCODE
 * Loop through all hubs, poll their ports
 PollHubs            pshs      u,y,b
                   IFGT    Level-1
@@ -1604,11 +1633,12 @@ finish@             puls      u,y,b,pc
 PollHubPorts
                     pshs      x,d
                    IFNE      H6309
-                    clrd
+                    ldd      USBHubWMaxPacketSize,y make room on stack
+                    negd
                    ELSE
                     ldd       #0
-                   ENDC
                     subd      USBHubWMaxPacketSize,y make room on stack
+                   ENDC
 * Should probably add a check here that allocating this won't overflow
 * the stack, but most hubs only take 1 or 2 bytes as each port is one bit
                    IFNE      H6309
@@ -1628,9 +1658,9 @@ PollHubPorts
                     sta       USBITS.DataFlag,s   DATA0/DATA1 flag
                     ldd       USBHubWMaxPacketSize,y
                     cmpd      #64
-                    ble       goodvalue@
-                    ldb       #64
-goodvalue@          stb       USBITS.MaxPacketSize,s maxpacket
+                    ble       goodsize@
+                    ldb       #64                 CH376 max 64 byte buffer
+goodsize@           stb       USBITS.MaxPacketSize,s maxpacket
 * The hub will send a NAK if there is no change, so
 * instruct the chip to not do a retry, and instead
 * bubble up the NAK. Thus, this procedure will return
@@ -1640,7 +1670,7 @@ goodvalue@          stb       USBITS.MaxPacketSize,s maxpacket
                     lda       #1
                     sta       USBITS.NakFlag,s    set to allow NAK
                     tfr       s,x
-                    lbsr      InTransfer
+retry@              lbsr      InTransfer
                     pshs      cc
                     lda       1+USBITS.DataFlag,s store DATA0/DATA1 flag
                     sta       USBHubDataFlag,y
@@ -1714,7 +1744,7 @@ error@              puls      x,d,pc
 * Return is carry clear/set if success/error
 SetPortFeature
                     pshs      d,x
-                    lda       #$03                SET FEATURE
+                    lda       #$03                SET FEATURE Table 9-4
                     bra       mergeclear@
 * A is feature selector (USB 2.0 specification table 11-17 on page 421)
 * B is port
@@ -1722,7 +1752,7 @@ SetPortFeature
 * Return is carry clear/set if success/error
 ClearPortFeature
                     pshs      d,x
-                    lda       #$01                CLEAR FEATURE
+                    lda       #$01                CLEAR FEATURE Table 9-4
 mergeclear@         leas      -13,s               merge in from SetPortFeature
                     sta       6,s                 bRequest
                     lda       13,s                restore A to feature
@@ -1754,6 +1784,7 @@ mergeclear@         leas      -13,s               merge in from SetPortFeature
 *  B is Port #
 *  U is USBMan Memory Address
 * Out
+*  A,B is destroyed
 *  Carry Set if error
 HubResetPort        pshs      y
                     lda       #$04                PORT_FEAT_RESET
@@ -1761,21 +1792,21 @@ HubResetPort        pshs      y
                     bcs       error@
                     leas      -4,s
                     leax      ,s                  x is 4 bytes result
-retry@              lbsr      Delay1Tk
+retry@              
                     lbsr      HubGetPortStatus
                     bcc       goodxfer@
                     leas      4,s
                     bra       error@
-goodxfer@           
+goodxfer@          
                    IFNE      H6309
-                    tim       #$10;2,s
+                    tim       #$10;,s
                    ELSE
-                    lda       #$10                $10 is port_reset done
-                    bita      2,s
+                    lda       #$10                $10 is port_reset
+                    bita      ,s
                    ENDC
-                    beq       retry@              loop until port reset done
+                    bne       retry@              loop until port reset done
                     leas      4,s
-                    lda       #20
+                    lda       #20                 table 11-17 page 422 usb_20.pdf
                     lbsr      ClearPortFeature
                     bra       finish@
 error@              comb
@@ -1793,37 +1824,75 @@ HubProcessPortChange
                     leax      ,s                  x is 4 bytes result
                     lbsr      HubGetPortStatus
                     lbcs      error@
-                    ldb       5,s                 reload port number off stack
+                   IFNE      H6309
+                    tim       #$01;2,x
+                   ELSE
                     lda       #$01
-                    bita      2,s
+                    bita      2,x
+                   ENDC
                     lbeq      noportconnectionchange@
+* Ok, we have a connection change, so now we need to wait for debounce.
+* This means wait up to 1500ms, checking every
+* Tick (16.6ms), waiting for 100ms (6 ticks) of consistent results before 
+* acting on it.
+* This is found in section 7.1.7.3 of the USB 2.0 spec (page 178).
+* First, set up our counters on the stack
+                    lda       #90                 wait up to 1500 ms (90*16.66ms)
+                    pshs      a
+                    leas      -1,s
+starttest@          lda       #6                  wait for six 'no change' results
+                    sta       ,s
+* Then Clear Port Feature
+                    lda       #$10                16  C_PORT_CONNECTION
+                    lbsr      ClearPortFeature
+                    bcs       debounceerror@
+* Then wait 1 Tick to see if there is a change
+looptest@           lbsr      Delay1Tk
+* Then reload status into X buffer
+                    lbsr      HubGetPortStatus
+* If port status has NOT changed, then decrement ,s. If 0 then we had enough
+* reports with no change so continue with connection or disconnection event.
+* If it has changed, go back to start of 100ms test.
+                   IFNE      H6309
+                    tim       #$01;2,x
+                   ELSE
+                    lda       #$01
+                    bita      2,x
+                   ENDC
+                    bne       starttest@ 
+                    dec       ,s
+                    beq       debouncegood@       got to 100ms, keep going
+                    dec       1,s                 error out if timed out
+                    bne       looptest@           go wait and test again
+debounceerror@      leas      2,s
+                    bra       error@
+debouncegood@       leas      2,s
 * Find out if connected or not
-                    bita      ,s
+                   IFNE      H6309
+                    tim      #$01;,x
+                   ELSE
+                    bita      ,x
+                   ENDC
                     lbeq      portdisconnected@
-* New Device Connected here
-                    bsr       HubResetPort
+* New Hub Connection here
+                    lbsr      HubResetPort
                     bcs       error@
                     lda       USBHubDeviceId,y
                     lbsr      AttachDevice
                     bcs       error@
-                    bra       clearportconnchange@
+                    bra       doneportconnchange@
 portdisconnected@
-                    *         Old                 Device Disconnected here
+* Old Device Disconnected here
                     lda       USBHubDeviceId,y    load hub device no
                     lbsr      DetachDevice
                     bcs       error@
-clearportconnchange@
-* Do a ClearPortFeature(C_PORT_CONNECTION) to clear
-                    ldb       5,s                 reload port number off stack
-                    lda       #$10                16  C_PORT_CONNECTION
-                    lbsr      ClearPortFeature
-                    bcs       error@
+doneportconnchange@
 noportconnectionchange@
                    IFNE      H6309
-                    tim       #$02;2,s
+                    tim       #$02;2,x
                    ELSE
                     lda       #$02                C_PORT_ENABLE
-                    bita      2,s
+                    bita      2,x
                    ENDC
                     beq       noportenable@
 * This is just saying if the port is enabled or not
@@ -1834,10 +1903,10 @@ noportconnectionchange@
                     bcs       error@
 noportenable@       
                    IFNE      H6309
-                    tim       #$04;2,s
+                    tim       #$04;2,x
                    ELSE
                     lda       #$04                C_PORT_SUSPEND
-                    bita      2,s
+                    bita      2,x
                    ENDC
                     beq       noportsuspend@
 * Just clearing the status, not doing anything else
@@ -1847,7 +1916,7 @@ noportenable@
                     lbsr      ClearPortFeature
                     bcs       error@
 noportsuspend@      lda       #$08                C_PORT_OVER_CURRENT
-                    bita      2,s
+                    bita      2,x
                     beq       noportovercurrent@
 * Current protection is not properly implemented in this driver
 * so if a device is over current, just disable that port
@@ -1898,14 +1967,12 @@ found@
                     lda       USBInterfaceDeviceId,y Device id from intf table
                     sta       USBHubDeviceId,u
                     lda       USBEDBEndpointAddress,x endpoint id from endpoint desc
-                    anda      #$0F
                     sta       USBHubStatusEndpoint,u
                     ldd       USBEDWMaxPacketSize,x wMaxPacketSize from endpoint desc
                     exg       a,b                 make big endian
                     std       USBHubWMaxPacketSize,u and store
 * Get port count and store into Hub Table
 * See 11.24.2 on page 420 of USB 2.0 Spec
-                    pshs      X
                     leas      -21,S
                     lda       #$A0
                     sta       5,S                 bRequestType
@@ -1927,29 +1994,55 @@ found@
                     stx       USBCTS.BufferPtr,S
                     lda       USBInterfaceDeviceId,y
                     sta       USBCTS.DeviceId,S
-                    tfr       S,X
+                    tfr       s,x
                     lbsr      ControlTransfer
                     bcc       goodxfer@
                     leas      21,s
-                    puls      X
                     bra       xfrerror@
+goodxfer@
 * See 11.23.21 Hub Descriptor on page 417 of USB 2.0 Spec
-goodxfer@           lda       15,s                port count is at this location
-                    leas      21,s
-                    puls      X
-                    sta       USBHubNumPorts,u    store port count into record
+* for offsets for bNbrPorts and bPwrOn2PwrGod
+                    ldb       13+2,s              port count is at this location
+                    stb       USBHubNumPorts,u    store port count into record
 * Turn power on all ports
-                    tfr       a,b
                     lda       #$08                POWER_FEAT_POWER
-powerloop@          lbsr      SetPortFeature
+poweronloop@
+                    lbsr      SetPortFeature
                     decb
-                    bne       powerloop@
+                    bne       poweronloop@
+* bPwrOn2PwrGood is the time in 2ms intervals until power is good on a port
+* We're going to use Delay3Tk, which is 50ms, so we need the ceiling of this
+* number divided by 25. We'll approximate this through multiply by 41, take
+* the top byte, shift down 2 bits...which is 41/1024, which is very close 
+* to 1/25 but instead on a binary boundary allowing us to divide by shifting.
+* Finally we increment as a ceiling function.
+* This all works out to bPwrOn2PwrGood*FLOOR(41/1024)+1.
+* It rounds up unnecessarily if exactly a multiple of 50ms,
+* leading to an extra 50ms wait, but close enough for our purposes.
+* Also always do a minimum of 100ms (2 Delay3Tks).
+                    lda       13+5,s              bPwrOn2PwrGood
+                    ldb       #41
+                    mul
+                    lsra
+                    lsra
+                    inca
+                    cmpa      #2
+                    bge       powerondelay@
+                    lda       #2
+powerondelay@       lbsr      Delay3Tk
+                    deca
+                    bne       powerondelay@
+                    leas      21,s
+* Reset status endpoint as some Hubs don't follow spec and reset this with
+* a device reset or a change in configuration
+                    lda       USBHubDeviceId,u
+                    ldb       USBHubStatusEndpoint,u
+                    lbsr      ClearStall
 * Now we poll the ports for our new hub
 * This might recurse down into another new hub. Fun!
                     tfr       u,y                 move hub entry to y (throw away Y)
                     ldu       6,s                 restore USBManMem pointer
 pollagain@
-                    lbsr      Delay1Tk
                     lbsr      PollHubPorts
                     bcc       pollagain@          poll until no change
                     andcc     #^Carry             mark carry clear
@@ -1992,6 +2085,7 @@ loop2@              sta       ,y+
                     bra       finish@
 error@              comb
 finish@             puls      y,d,pc
+                   ENDC
 
 eom                 equ       *
                     end
