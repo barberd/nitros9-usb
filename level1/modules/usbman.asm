@@ -475,7 +475,7 @@ ResetDevice
                   ELSE
                     ldu       >D.USBManMem
                   ENDC
-                    *find     Device
+* find Device
                     ldb       #USBMaxDevices
                     leax      USBDeviceTable,u
 findloop@           cmpa      USBDeviceId,x
@@ -659,7 +659,10 @@ goodmemreq@
                     ldx       2,s                 restore x pointer to allocated buffer
 getconfig@          bsr       GetConfigDescriptor fill allocated buffer with conf desc
                     bcc       go@
-                    bra       getconfig@
+                    puls      y,u
+                    puls      d
+                    os9       F$SRtMem
+                    bra       error@
 go@                 puls      y
 * Loop over X, stop when finding an interface descriptor matching the ID
 loop2@              lda       USBDescriptorType,x
@@ -821,7 +824,7 @@ foundslot0@
                     lbsr      FreeUSBLock
                     cmpa      #CH376_USB_INT_SUCCESS
                     lbne      error@
-* Now, get first 8 bytes to get bMaxPacketSize0
+* Now, get first 64 bytes to get bMaxPacketSize0
                     lda       #64
                     sta       USBDeviceMaxPacketSize,y store 64 byte min temporarily because Windows and Linux do it this way so least likely to run into issues with a non-standard device
                     leax      DeviceDesc,pcr
@@ -829,7 +832,6 @@ foundslot0@
                     stx       USBCTS.SetupPktPtr,s
                     leax      5,s
                     stx       USBCTS.BufferPtr,s
-                    *clra                          device id 0 at this point
                     lda       USBDeviceId,y 
                     sta       USBCTS.DeviceId,s
                     leax      ,s
@@ -1118,8 +1120,8 @@ FindProbeDriver
                     puls      x
                     ldb       #USBMaxDrivers
 loop@
-                    *         X                   is driver entry
-                    *         U                   is Device Record
+* X is driver entry
+* U is Device Record
                     pshs      b
                     ldy       USBDriverDevMatchPtr,x this is location of devmatch
                     lbeq      next@               if this slot empty, move to next
@@ -1678,11 +1680,14 @@ retry@              leax      ,s
                     beq       syncerror@
                     cmpb      #$23                Handle DATA0 sync errors
                     beq       syncerror@
-                    ldx       USBHubWMaxPacketSize,y restore stack
                    IFNE      H6309
+                    ldx       USBHubWMaxPacketSize,y restore stack
                     addr      x,s
                    ELSE
-                    leas      x,s
+                    tfr       d,x
+                    ldd       USBHubWMaxPacketSize,y restore stack
+                    leas      d,s
+                    tfr       x,d
                    ENDC
                     comb
                     bra       finish@
