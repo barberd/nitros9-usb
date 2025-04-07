@@ -17,9 +17,9 @@
                     use       usb.d
                     use       ch376.d
 
-USBMaxDevices       equ       6
+USBMaxDevices       equ       16
 USBMaxDrivers       equ       5                   Hub+MSD+KBD+Mouse+Printer
-USBMaxInterfaces    equ       16
+USBMaxInterfaces    equ       32
 USBMaxHubs          equ       3
 
 * USB Hub Record offsets
@@ -425,7 +425,10 @@ DirectPortReset
                     ldb       #CH376_GET_STATUS   clear any interrupts generated
                     stb       CH376_CMDREG
                     ldb       CH376_DATAREG
-                    lbsr      Delay1Tk            This should be 10ms for USB reset
+* According to USB 2.0 Spec, section 7.1.7.5 on page 153, host controllers should
+* reset for at least 50ms. Do 66.66 just to be sure.
+                    lbsr      Delay3Tk
+                    lbsr      Delay1Tk
                     sta       CH376_CMDREG
                     ldb       #$06                set host mode, with SOF package
                     stb       CH376_DATAREG
@@ -1266,12 +1269,6 @@ skipnak@
                     lda       ,s                  grab transaction attribute off stack
                     sta       CH376_DATAREG
                     lbsr      WaitIrqResult
-* Not sure just ignoring it is the right behavior when getting a DATA0/DATA1 sync 
-* error. But this works well with hubs that do not reset properly.
-                    cmpa      #$2B                Handle DATA1 sync errors
-                    beq       skipflip@
-                    cmpa      #$23                Handle DATA0 sync errors
-                    beq       skipflip@
                     cmpa      #CH376_USB_INT_SUCCESS
                     lbne      error@
                    IFNE      H6309
@@ -1281,7 +1278,7 @@ skipnak@
                     eorb      #$80                flip and store flag for next time
                     stb       USBITS.DataFlag,x
                    ENDC
-skipflip@           lda       #CH376_RD_USB_DATA0
+                    lda       #CH376_RD_USB_DATA0
                     sta       CH376_CMDREG
                     clra
                     ldb       CH376_DATAREG       D now contains num bytes to read
@@ -1638,21 +1635,18 @@ finish@             puls      u,y,b,pc
 * Return with carry set if no change in ports
 PollHubPorts
                     pshs      x,d
-                   IFNE      H6309
-                    ldd      USBHubWMaxPacketSize,y make room on stack
-                    negd
-                   ELSE
-                    ldd       #0
-                    subd      USBHubWMaxPacketSize,y make room on stack
-                   ENDC
 * Should probably add a check here that allocating this won't overflow
 * the stack, but most hubs only take 1 or 2 bytes as each port is one bit
                    IFNE      H6309
+                    ldd      USBHubWMaxPacketSize,y make room on stack
+                    negd
                     addr      d,s
                    ELSE
+                    ldd       #0
+                    subd      USBHubWMaxPacketSize,y make room on stack
                     leas      d,s                 wMaxPacketSize
                    ENDC
-                    leax      ,s
+retry@              leax      ,s
                     leas      -9,s                make room on stack
                     stx       USBITS.BufferPtr,s  pointer to buffer
                     ldd       USBHubWMaxPacketSize,y
@@ -1660,36 +1654,52 @@ PollHubPorts
                     lda       USBHubDeviceId,y
                     ldb       USBHubStatusEndpoint,y
                     std       USBITS.DeviceId,s   usb device id+endpoint id
-                    lda       USBHubDataFlag,y
-                    sta       USBITS.DataFlag,s   DATA0/DATA1 flag
                     ldd       USBHubWMaxPacketSize,y
-                    cmpd      #64
-                    ble       goodsize@
-                    ldb       #64                 CH376 max 64 byte buffer
-goodsize@           stb       USBITS.MaxPacketSize,s maxpacket
+                    stb       USBITS.MaxPacketSize,s maxpacket
 * The hub will send a NAK if there is no change, so
 * instruct the chip to not do a retry, and instead
 * bubble up the NAK. Thus, this procedure will return
 * with carry set if no change in ports.
 * Note this differs from most usage of a set carry (in which it represents an error).
-* In this case, carry set just means no change.
+* Carry set from InTransfer with return of $2A return just means no change
+* so exit cleanly in this scenario.
                     lda       #1
                     sta       USBITS.NakFlag,s    set to allow NAK
                     tfr       s,x
-retry@              lbsr      InTransfer
-                    pshs      cc
-                    lda       1+USBITS.DataFlag,s store DATA0/DATA1 flag
-                    sta       USBHubDataFlag,y
-                    puls      cc
+                    lda       USBHubDataFlag,y
+                    sta       USBITS.DataFlag,s   DATA0/DATA1 flag
+                    lbsr      InTransfer
+                    bcc       goodxfer@
                     leas      9,s
-                    bcs       error@
-goodxfer@
+                    cmpb      #$2A                Nak means no change
+                    beq       wrapup@
+* Try to recover from a DATA0/DATA1 sync error.
+                    cmpb      #$2B                Handle DATA1 sync errors
+                    beq       syncerror@
+                    cmpb      #$23                Handle DATA0 sync errors
+                    beq       syncerror@
+                    ldx       USBHubWMaxPacketSize,y restore stack
+                   IFNE      H6309
+                    addr      x,s
+                   ELSE
+                    leas      x,s
+                   ENDC
+                    comb
+                    bra       finish@
+syncerror@          lda       USBHubDeviceId,y
+                    ldb       USBHubStatusEndpoint,y
+                    lbsr      ClearStall
+                    lbsr      Delay3Tk
+                    bra       retry@
+goodxfer@           lda       USBITS.DataFlag,s store DATA0/DATA1 flag
+                    sta       USBHubDataFlag,y
+                    leas      9,s
 * Parse bitmap here
                     tfr       s,x                 set x to top of stack
                     lda       ,x+                 load first byte
                     rora                          Ignore Hub power status
                     ldb       #1                  start with port 1
-loop0@              rora                          rotate bit 0 to carry
+loop0@              rora                          next bit to carry
                     bcc       notthisport@        carry clear means no change
                     lbsr      HubProcessPortChange process port if changed
 notthisport@        incb                          go to next bit
@@ -1699,20 +1709,14 @@ notthisport@        incb                          go to next bit
 notbyteboundary@
                     cmpb      USBHubNumPorts,y    compare to number of ports
                     ble       loop0@              keep going for all ports
-                    ldd       USBHubWMaxPacketSize,y restore stack
+                    bra       retry@              loop until got NAK
+wrapup@             ldd       USBHubWMaxPacketSize,y restore stack
                    IFNE      H6309
                     addr      d,s
                    ELSE
                     leas      d,s
                    ENDC
-                    bra       finish@
-error@              ldd       USBHubWMaxPacketSize,y restore stack
-                   IFNE      H6309
-                    addr      d,s
-                   ELSE
-                    leas      d,s
-                   ENDC
-                    comb
+                    clra
 finish@             puls      x,d,pc
 
 * X is Buffer
@@ -1976,7 +1980,11 @@ found@
                     sta       USBHubStatusEndpoint,u
                     ldd       USBEDWMaxPacketSize,x wMaxPacketSize from endpoint desc
                     exg       a,b                 make big endian
-                    std       USBHubWMaxPacketSize,u and store
+                    anda      #$07                strip off microframe data (9.6.6 on page 273 of usb 2.0 spec)
+                    cmpd      #64
+                    ble       goodsize@
+                    ldd       #64                 CH376 max 64 byte buffer
+goodsize@           std       USBHubWMaxPacketSize,u and store
 * Get port count and store into Hub Table
 * See 11.24.2 on page 420 of USB 2.0 Spec
                     leas      -21,S
@@ -2039,19 +2047,11 @@ powerondelay@       lbsr      Delay3Tk
                     deca
                     bne       powerondelay@
                     leas      21,s
-* Reset status endpoint as some Hubs don't follow spec and reset this with
-* a device reset or a change in configuration
-                    lda       USBHubDeviceId,u
-                    ldb       USBHubStatusEndpoint,u
-                    lbsr      ClearStall
 * Now we poll the ports for our new hub
 * This might recurse down into another new hub. Fun!
                     tfr       u,y                 move hub entry to y (throw away Y)
                     ldu       6,s                 restore USBManMem pointer
-pollagain@
                     lbsr      PollHubPorts
-                    bcc       pollagain@          poll until no change
-                    andcc     #^Carry             mark carry clear
                     bra       finish@
 xfrerror@           clra
                     ldb       #USBHubRecLength
