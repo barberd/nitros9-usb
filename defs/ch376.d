@@ -2,6 +2,8 @@ CH376_DATAREG		equ	$FF60
 CH376_CMDREG		equ	$FF61
 CH376_FLAGREG		equ	CH376_CMDREG
 
+CH376_DEFAULT_RETRY     equ     $8F
+
 * CH376 commands; see CH376 datasheet 1 and 2
 CH376_GET_IC_VER	equ	$01
 CH376_RESET_ALL		equ	$05
