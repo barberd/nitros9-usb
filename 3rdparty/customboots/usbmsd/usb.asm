@@ -1,3 +1,35 @@
+* Static vars go here
+
+HubDevMatch         fdb       $0000               0 VendorId
+                    fdb       $0000               2 Mask
+                    fdb       $0000               4 ProductId
+                    fdb       $0000               6 Mask
+                    fcb       $09                 8 DeviceClass
+                    fcb       $00                 9 DeviceSubClass
+                    fcb       $FF                 10 ClassMask
+                    fcb       $FF                 11 SubClassMask
+                    fcb       $00                 12 DeviceProtocol
+                    fcb       $00                 13 Mask
+                    fcb       $09                 14 InterfaceClass
+                    fcb       $00                 15 InterfaceSubClass
+                    fcb       $FF                 16 ClassMask
+                    fcb       $FF                 17 SubClassMask
+                    fcb       $00                 18 InterfaceProtocol
+                    fcb       $FF                 19 Mask
+
+DeviceDesc          fcb       $80                 bmRequestType
+                    fcb       $06                 bRequest
+                    fdb       $0001               wValue
+                    fdb       $0000               wIndex
+                    fdb       $4000               wLength (64 bytes)
+
+ConfigDesc          fcb       $80                 bmRequestType
+                    fcb       $06                 bRequest
+                    fdb       $0002               wValue
+                    fdb       $0000               wIndex
+*These 2 bytes would normally be included but is replaced by routines
+*                fdb     $0800                wLength (08 bytes)
+
 * initialize ch376
 CardInit
                     pshs      u,y,x,d
@@ -6,7 +38,7 @@ CardInit
 * Check if device exists first
                     lda       #CH376_RESET_ALL
                     sta       CH376_CMDREG
-                    lbsr      Delay               Datasheet says wait 40ms.
+                    lbsr      Delay               Datasheet says wait 40ms. Delay is 50ms.
                     lda       #CH376_GET_STATUS   clear any interrupts
                     sta       CH376_CMDREG
                     lda       CH376_DATAREG
@@ -19,9 +51,6 @@ CardInit
                     lbne      InitErr@            if not, ch376 not found
                     lda       #$FF
                     sta       USBDeviceIdCache    Invalidate Device Id
-                    lda       #CH376_GET_STATUS   clear any interrupts
-                    sta       CH376_CMDREG
-                    lda       CH376_DATAREG
 * Register built-in Hub Drivers
                     leas      -8,s
                     leax      HubDevMatch,pcr
@@ -54,9 +83,9 @@ CardInit
                     lda       CH376_FLAGREG
                     bmi       noirq@
                     lbsr      IrqHandler
-                    lda       $FF22               clear PIA interrupt
+                    lda       $FF22               reset any latched CART interrupt
                     clr       USBIntStatus
-noirq@              andcc     #^Carry             ensure success
+noirq@              clra                          ensure success
                     bra       InitEx@
 InitErrRemoveHubDriver@
                     leax      HubProbe,pcr
@@ -65,42 +94,43 @@ InitErr@            puls      cc
                     comb
 InitEx@             puls      d,x,y,u,pc
 
-Delay               pshs      x,cc
-                    ldx       #988*3
-w@                  leax      -1,x
-                    bne       w@
-                    puls      cc,x,pc
+Delay               pshs      x
+                    ldx       #988*3              (5) (4) 6809 @ .89
+w@                  leax      -1,x                (4+) (4+)
+                    exg       a,a                 (8) (5)
+                    bne       w@                  (3) (3)
+                    puls      x,pc                (5) (4+)
 
 * This routine waits for an interrupt.
 * Return Carry Clear, Status in A
 WaitIrqResult
                     pshs      x,u
-                    lda       USBIntStatus        if already got status, move on
+                    lda       USBIntStatus        if already got status, return
                     bne       finish@
                     tfr       cc,a
                     anda      #IntMasks
                     beq       multitasking@
 * If interrupts are off, check flag register manually.
-manualintloop@
-                    lda       CH376_FLAGREG
+manualintloop@      lda       CH376_FLAGREG
                     bmi       manualintloop@
                     lbsr      IrqHandler
-                    lda       $FF22               clear interrupt from PIA
+                    lda       $FF22               reset any latched CART interrupt
                     lda       USBIntStatus
                     bra       finish@
 multitasking@
-loop@
-                    lda       USBIntStatus        sleep/loop until interrupt received by handler
+loop@               lda       USBIntStatus        sleep/loop until interrupt received by handler
                     bne       finish@
                     bra       loop@
 finish@             clr       USBIntStatus
                     puls      u,x,pc
 
 *
-* IRQ handler
+* IRQ handler,
 *
-IrqHandler
-                    lda       #CH376_GET_STATUS
+* Input :
+*       A       = Status byte XOR flip
+*       U       = USBMan data area
+IrqHandler          lda       #CH376_GET_STATUS
                     sta       CH376_CMDREG
                     lda       CH376_DATAREG
                     cmpa      #CH376_USB_INT_CONNECT
@@ -141,6 +171,9 @@ DirectPortReset
                     ldb       #CH376_GET_STATUS   clear any interrupts generated
                     stb       CH376_CMDREG
                     ldb       CH376_DATAREG
+* According to USB 2.0 Spec, section 7.1.7.5 on page 153, host controllers should
+* reset for at least 50ms. Do it twice just to be sure.
+                    lbsr      Delay
                     lbsr      Delay
                     sta       CH376_CMDREG
                     ldb       #$06                set host mode, with SOF package
@@ -152,7 +185,7 @@ DirectPortReset
                     lda       #CH376_GET_STATUS   clear any interrupts generated
                     sta       CH376_CMDREG
                     lda       CH376_DATAREG
-                    lda       $FF22               clear PIA interrupt
+                    lda       $FF22               clear latched interrupts
                     clrb
                     bra       finish@
 error@              comb
@@ -178,6 +211,8 @@ error@              comb
 *   U Memory Location of device driver
 *   Probe Address
 *   Disconnect Address
+* This function is normally called externally, so does not
+* have the U pointer to the data area coming in
 RegisterDriver
                     pshs      d,x,y,u
                     tfr       x,y
@@ -213,11 +248,11 @@ loop1@              pshs      b                   store counter
                     pshs      y                   save interface record
                     tfr       x,y                 put device record into y
                     ldx       #Heap
-getconfig@          bsr       GetConfigDescriptor fill heap with conf desc
-                    bcc       go@
-                    bra       getconfig@
-go@                 puls      y                   restore interface record
-* Loop over config descriptor, stop when finding an interface descriptor matching the ID
+getconfig@          bsr       GetConfigDescriptor fill allocated buffer with conf desc
+                    puls      y
+                    bcs       error@
+go@
+* Loop over X, stop when finding an interface descriptor matching the ID
 loop2@              lda       USBDescriptorType,x
                     cmpa      #$04
                     bne       notthis@
@@ -233,11 +268,7 @@ skipentry@          leay      USBInterfaceRecLength,y
                     puls      b
                     decb
                     bne       loop1@
-* When a new driver registers, its a good signal that the user is trying
-* something that indicates new hardware has been inserted, so poll the hubs
-* looking for new hardware
-                    lbsr      PollHubs
-                    andcc     #^Carry             ensure success
+                    clrb
                     bra       finish@
 error@              comb
 finish@             puls      u,y,x,d,pc
@@ -275,12 +306,7 @@ loopdesc@           lda       ,-y
 * A is device Id
 * Returns Pointer to Device Record in X
 GetDeviceRec
-                  IFGT    Level-1
-                    ldx       <D.USBManMem
-                  ELSE
-                    ldx       >D.USBManMem
-                  ENDC
-                    leax      USBDeviceTable,x
+                    ldx       #USBDeviceTable
 finddevloop@        cmpa      USBDeviceId,x       it has to be there unless
                     beq       founddev@           the table has been corrupted
                     leax      USBDeviceRecLength,x
@@ -303,11 +329,11 @@ loop0@              cmpx      USBDriverProbeFuncPtr,y
 * Found device, now look for entries in Interface Table
 found@              ldu       #USBInterfaceTable
                     ldb       #USBMaxInterfaces
-loop1@              cmpy      USBInterfaceDriverRecord
+loop1@              cmpy      USBInterfaceDriverRecord,u
                     bne       next@
                     clra
-                    sta       USBInterfaceDriverRecord clear interface of driver
-                    sta       USBInterfaceDriverRecord+1
+                    sta       USBInterfaceDriverRecord,u clear interface of driver
+                    sta       USBInterfaceDriverRecord+1,u
 next@               decb
                     beq       doneinterfaces@
                     leau      USBInterfaceRecLength,u
@@ -324,6 +350,7 @@ done@               puls      u,y,d,pc
 
 * Attach a new device, already reset and listening on device id 0
 * Hub and Port in D
+* U is pointer to USBMan Memory
 * Return
 * DeviceId in A
 * B is destroyed
@@ -333,7 +360,6 @@ AttachDevice
                     tfr       d,x
 * Find free Device Id
                     lda       #1
-* Reload in USBDeviceTable's location from stack
 findfidoloop@       ldy       #USBDeviceTable
                     ldb       #USBMaxDevices
 findfidiloop@       cmpa      USBDeviceId,y
@@ -361,25 +387,6 @@ foundslot0@
                     puls      a
                     sta       USBDeviceId,y       store device id in device record
                     stx       USBDeviceHub,y      store hub and port in device record
-* Now, get first 8 bytes to get bMaxPacketSize0
-                    ldd       #$0800
-                    sta       USBDeviceMaxPacketSize,y store 8 byte min temporarily
-                    leax      DeviceDesc,pcr
-                    leas      -13,s
-                    stx       USBCTS.SetupPktPtr,s
-                    leax      5,s
-                    stx       USBCTS.BufferPtr,s
-                    clra                          device id 0 at this point
-                    sta       USBCTS.DeviceId,s
-                    leax      ,s
-                    lbsr      ControlTransfer
-                    bcc       goodxfer0@
-                    leas      13,s
-                    lbra      error@
-goodxfer0@          ldb       5+USBDDBMaxPacketSize0,s load bMaxPacketSize0 here
-                    leas      13,s
-                    stb       USBDeviceMaxPacketSize,y store in device record
-* Device is on bus as device id 0
 * Now assign the identified ID to the device
                     clra                          send to device id 0
                     lbsr      SetDevice
@@ -390,7 +397,24 @@ goodxfer0@          ldb       5+USBDDBMaxPacketSize0,s load bMaxPacketSize0 here
                     lbsr      WaitIrqResult
                     cmpa      #CH376_USB_INT_SUCCESS
                     lbne      error@
-                    lbsr      Delay
+* Now, get first 64 bytes to get bMaxPacketSize0
+                    lda       #64
+                    sta       USBDeviceMaxPacketSize,y store 64 byte min temporarily because Windows and Linux do it this way so least likely to run into issues with a non-standard device
+                    leax      DeviceDesc,pcr
+                    leas      -69,s
+                    stx       USBCTS.SetupPktPtr,s
+                    leax      5,s
+                    stx       USBCTS.BufferPtr,s
+                    lda       USBDeviceId,y
+                    sta       USBCTS.DeviceId,s
+                    leax      ,s
+                    lbsr      ControlTransfer
+                    bcc       goodxfer0@
+                    leas      69,s
+                    lbra      error@
+goodxfer0@          ldb       5+USBDDBMaxPacketSize0,s load bMaxPacketSize0 here
+                    leas      69,s
+                    stb       USBDeviceMaxPacketSize,y store in device record
 * Next, get the full record now that we know the bMaxPacketSize0
                     ldd       #$1200              device descriptors always 18 bytes
                     pshs      d
@@ -435,7 +459,7 @@ goodxfer1@
                     leas      31,s
 * Now collect configuration and store interfaces
 * Collect just first 9 bytes to get wTotalLength
-* to request entire collection
+* To allocate enough room for entire collection
                     ldd       #$0900
                     pshs      d
                     leax      ConfigDesc+6,pcr
@@ -456,12 +480,14 @@ loopdesc@           lda       ,-x
                     bcc       goodxfer2@
                     leas      22,s
                     lbra      error@
-goodxfer2@          ldd       5+USBCDWTotalLength,s get wTotalLength
+goodxfer2@
+                    ldd       5+USBCDWTotalLength,s get wTotalLength
                     exg       a,b
                     std       USBDeviceConfigurationWLength,y store in record
                     leas      22,s
                     ldx       #Heap
                     lbsr      GetConfigDescriptor
+                    lbcs      error@
 * Set Configuration 1
 * All devices are always put in configuration 1, even devices without drivers
 * This should probably be fixed, but will complicate logic since drivers
@@ -549,14 +575,6 @@ GetString           pshs      d
                     std       11,s
                     leax      ,s
                     lbsr      ControlTransfer
-#                   leax      13,s
-#                   ldb       #$14
-#loop@              lda       ,x+
-##                  jsr       [$A002]
-#                   decb
-#                   bne       loop@
-#                   lda       #$0D
-#                   jsr       [$A002]
                     leas      33,s
 finish@             puls      d,pc
 
@@ -588,10 +606,10 @@ loop2@              pshs      b
 * Find the driver and call its disconnect function
                     ldu       USBInterfaceDriverRecord,y
                     beq       nodriver@           no driver loaded
-                    ldd       USBDriverDisconnectFuncPtr
+                    ldd       USBDriverDisconnectFuncPtr,u
                     beq       nodriver@           skip if no disconnect
                     pshs      d
-                    ldu       USBDriverMemoryPtr
+                    ldu       USBDriverMemoryPtr,u
 * X is Device Rec, Y is Interface Rec, U is memory
                     jsr       [,s++]
 * Now clear the interface table record
@@ -617,26 +635,6 @@ loop1@              sta       ,x+
 error@              comb
 finish@             puls      u,y,x,d,pc
 
-* A is new device ID to set the device listening on bus address 0
-SetAddress
-                    pshs      d,x
-                    leas      -13,s
-                    sta       7,s
-                    leax      5,s
-                    stx       USBCTS.SetupPktPtr,s
-                    ldd       #0
-                    std       USBCTS.BufferPtr,s
-                    std       USBCTS.DeviceId,s   also zero 5,s
-                    sta       8,s
-                    std       9,s
-                    std       11,s
-                    lda       #$05
-                    sta       6,s
-                    leax      ,s
-                    lbsr      ControlTransfer
-                    leas      13,s
-                    puls      x,d,pc
-
 SetConfiguration
                     pshs      d
                     lbsr      SetDevice
@@ -654,6 +652,7 @@ finish@             puls      d,pc
 * Checks Interface against all drivers and calls probe function if match
 * Y Interface Record
 * X Interface Descriptor
+* U USBMan Memory Area
 * Returns nothing but carry clear/set if driver found/not found.
 FindProbeDriver
                     pshs      d,x,y,u
@@ -666,7 +665,6 @@ loop@
 * X is driver entry
 * U is Device Record
                     pshs      b
-                    #ldd      USBDriverProbeFuncPtr,x
                     ldy       USBDriverDevMatchPtr,x this is location of devmatch
                     lbeq      next@               if this slot empty, move to next
                     ldd       USBDeviceVendorId,u Vendor ID
@@ -688,7 +686,7 @@ loop@
                     anda      USBDevMatchDeviceProtocolMask,y
                     cmpa      USBDevMatchDeviceProtocol,y
                     bne       next@
-* Done with Device Matching, now move on to Interface matching
+* Done with device matching, now move on to interface matching
                     ldu       5,s                 load original 'y' interface record
                     ldd       USBInterfaceClass,u InterfaceClass and SubClass
                     anda      USBDevMatchInterfaceClassMask,y
@@ -699,10 +697,10 @@ loop@
                     anda      USBDevMatchInterfaceProtocolMask,y
                     cmpa      USBDevMatchInterfaceProtocol,y
                     bne       next@
-* Wow, all that matched. This looks like the right driver.
-* So load up its U and call its probe function.
-* Pass in Y as the pointer to the interface table
-                    tfr       u,y                 restore Y interface table ptr
+* wow, so all that matched. This looks like the right driver.
+* load up its U and call its probe function.
+* pass in Y as the pointer to the interface table
+                    tfr       u,y                 move interface table entry to y
                     ldu       USBDriverMemoryPtr,x load driver memory area
                     ldd       USBDriverProbeFuncPtr,x load pointer to probe function
                     pshs      x                   save driver table pointer
@@ -710,11 +708,6 @@ loop@
                     pshs      d
                     jsr       [,s++]              call Probe Function
                     puls      x                   restore driver table pointer
-                    #bcc      success@            if probe says no, keep 'driving'
-                    #lda      USBDeviceId
-                    #ldb      #0
-                    #lbsr     SetConfiguration
-                    #bra      next@
                     bcs       next@
 success@            stx       USBInterfaceDriverRecord,y save claimed driver to interface
                     leas      1,s                 remove driver counter from stack
@@ -728,25 +721,24 @@ error@              comb                          error if no driver found
 finish@             puls      u,y,x,d,pc
 
 * Clear Stall condition on endpoint
+* This is a shortcut for a ControlTransfer with a Endpoint Request SETUP Packet
+* for a ClearFeature with ENDPOINT_HALT (see USB 2.0 Spec pages 252-256)
+* This also resets the data toggle bit to 0 even if not stalled.
 * Input: DeviceId in A, EndpointId in B (bit 7 high if input endpoint)
-* Output: None
+* Output: Carry clear if success, set if error
 ClearStall
-                    pshs      x,d
-                    leas      -13,s
-                    sta       USBCTS.DeviceId,s
-                    stb       9,s
-                    ldd       #0
-                    std       11,s
-                    std       7,s
-                    stb       10,s
-                    ldd       #$0201
-                    std       5,s
-                    leax      5,s
-                    stx       USBCTS.SetupPktPtr,s
-                    tfr       s,x
-                    lbsr      ControlTransfer
-                    leas      13,s
-                    puls      d,x,pc
+                    pshs      d
+                    lbsr      SetDevice
+                    lda       #CH376_CLR_STALL
+                    sta       CH376_CMDREG
+                    stb       CH376_DATAREG
+                    lbsr      WaitIrqResult
+                    cmpa      #CH376_USB_INT_SUCCESS
+                    bne       error@
+                    clrb
+                    bra       finish@
+error@              comb
+finish@             puls      d,pc
 
 SetDevice           cmpa      USBDeviceIdCache
                     beq       finish@
@@ -784,7 +776,6 @@ InTransfer
 bigloop@
                     lda       USBITS.DeviceId,x   load device id
                     bsr       SetDevice
-                    pshs      u
                     lda       USBITS.NakFlag,x
                     cmpa      USBNakRetryCache    if same as last time, skip change
                     beq       skipnak@
@@ -801,7 +792,6 @@ returnnak@
                     clra
                     sta       CH376_DATAREG
 skipnak@
-                    puls      u
                     ldb       #CH376_ISSUE_TKN_X
                     stb       CH376_CMDREG
                     ldb       USBITS.DataFlag,x   pull DATA0 or DATA1 flag for this endp
@@ -814,29 +804,24 @@ skipnak@
                     ldb       USBITS.DataFlag,x
                     eorb      #$80                flip and store flag for next time
                     stb       USBITS.DataFlag,x
-doread@
-                    lda       #CH376_RD_USB_DATA0 datasheet says same but data0 is more efficient
+                    lda       #CH376_RD_USB_DATA0
                     sta       CH376_CMDREG
                     clra
-                    ldb       CH376_DATAREG       D now contains # bytes to read
-                    pshs      d
-                    cmpb      #64                 error if over 64 bytes
-                    bhi       sizeerr@
+                    ldb       CH376_DATAREG       D now contains num bytes to read
+                    bne       readbuf@            non-zero, so go read it
+                    bra       wrapup@
+readbuf@            pshs      d
 * check against buffer size
 * if too big, just error out entirely
                     cmpy      ,s
                     blt       sizeerr@
-                    tstb
-loop0@              beq       donepkt@
-                    lda       CH376_DATAREG
+loop0@              lda       CH376_DATAREG
                     sta       ,u+
                     leay      -1,y
                     decb
-                    bra       loop0@
+                    bne       loop0@
 donepkt@
                     puls      d
-                    tstb
-                    beq       wrapup@
                     cmpy      #0                  if buffer is full, then exit
                     beq       wrapup@
                     cmpb      USBITS.MaxPacketSize,x see if this was a full packet
@@ -844,14 +829,14 @@ donepkt@
 wrapup@             ldd       USBITS.BufferLength,x
                     pshs      y
                     subd      ,s++
-                    andcc     #^Carry             make sure no error
                     bra       finish@
-sizeerr@            leas      2,s                 get rid of size to read on stack
-                    lda       #$FF                give error code as $FF
-error@              tfr       a,b                 return interrupt received in B
-                    orcc      #Carry
-finish@
-                    leas      1,s                 get rid of transaction attribute
+sizeerr@
+                    leas      2,s                 get rid of size to read on stack
+                    lda       #E$BufSiz           give error code
+error@
+                    comb
+                    tfr       a,b                 return interrupt received in B
+finish@             leas      1,s                 get rid of transaction attribute
                     puls      u,y,pc
 
 * Make sure default Nak behavior is set.
@@ -933,8 +918,8 @@ wrapup@             ldd       USBOTS.BufferLength,x
                     pshs      y
                     subd      ,s++
                     bra       finish@
-error@              tfr       a,b
-                    orcc      #Carry
+error@              comb
+                    tfr       a,b
 finish@             leas      1,s                 remove stored transaction attribute
                     puls      u,y,pc
 
@@ -955,19 +940,18 @@ ControlTransfer
                     lda       #CH376_WR_HOST_DATA
                     sta       CH376_CMDREG
                     ldu       USBCTS.SetupPktPtr,x
-                    ldb       #8
-                    stb       CH376_DATAREG
-loop0@              beq       donesetuppacket@
-                    lda       ,u+
-                    sta       CH376_DATAREG
-                    decb
-                    bra       loop0@
-donesetuppacket@
+*                                                126/101 (6809/6309) cycles
+                    ldb       #8                  2
+                    stb       CH376_DATAREG       4/3
+loop0@              lda       ,u+                 6/5 \
+                    sta       CH376_DATAREG       4/3  \  loop 8 times
+                    decb                          2/1  /  for 120/96 cycles
+                    bne       loop0@              3   /
                     lda       #CH376_ISSUE_TKN_X
                     sta       CH376_CMDREG
                     clrb
                     stb       CH376_DATAREG       set to DATA0
-                    ldb       #CH376_DEF_USB_PID_SETUP SETUP pid is 1101. endpoint is 0
+                    ldb       #CH376_DEF_USB_PID_SETUP SETUP pid is 1101. endpoint is 0.
                     stb       CH376_DATAREG
                     lbsr      WaitIrqResult
                     tfr       a,b
@@ -1008,7 +992,7 @@ h2dnodata@
                     std       USBITS.BufferPtr,s
                     std       USBITS.BufferLength,s
                     lda       USBCTS.DeviceId,x
-                    clrb
+                    clrb                          endpoint is 0
                     std       USBITS.DeviceId,s
                     stb       USBITS.NakFlag,s    NAK behavior default
                     lbsr      GetDeviceRec
@@ -1040,7 +1024,7 @@ dev2host@
                     ldd       USBCTS.BufferPtr,x
                     std       USBITS.BufferPtr,s  pointer to buffer
                     lda       USBCTS.DeviceId,x
-                    clrb
+                    clrb                          endpoint is 0
                     std       USBITS.DeviceId,s   device and endpoint
                     stb       USBITS.NakFlag,s    nak behavior default
                     lbsr      GetDeviceRec
@@ -1060,7 +1044,7 @@ d2hnodata@
                     std       USBOTS.BufferPtr,s
                     std       USBOTS.BufferLength,s
                     lda       USBCTS.DeviceId,x
-                    clrb
+                    clrb                          endpoint is 0
                     std       USBOTS.DeviceId,s
                     lbsr      GetDeviceRec
                     ldb       USBDeviceMaxPacketSize,x
@@ -1093,15 +1077,16 @@ finish@             puls      u,y,b,pc
 * Query Status Change endpoint
 * and process changed ports
 * Y is Hub Table Entry
+* U is USBMan Memory (needed for HubProcessPortChange)
 * Return with carry set if no change in ports
 PollHubPorts
                     pshs      x,d
-                    ldd       #0
-                    subd      USBHubWMaxPacketSize,y make room on stack
 * Should probably add a check here that allocating this won't overflow
 * the stack, but most hubs only take 1 or 2 bytes as each port is one bit
+                    ldd       #0
+                    subd      USBHubWMaxPacketSize,y make room on stack
                     leas      d,s                 wMaxPacketSize
-                    leax      ,s
+retry@              leax      ,s
                     leas      -9,s                make room on stack
                     stx       USBITS.BufferPtr,s  pointer to buffer
                     ldd       USBHubWMaxPacketSize,y
@@ -1109,33 +1094,50 @@ PollHubPorts
                     lda       USBHubDeviceId,y
                     ldb       USBHubStatusEndpoint,y
                     std       USBITS.DeviceId,s   usb device id+endpoint id
-                    lda       USBHubDataFlag,y
-                    sta       USBITS.DataFlag,s   DATA0/DATA1 flag
                     ldd       USBHubWMaxPacketSize,y
-                    cmpd      #64
-                    ble       goodvalue@
-                    ldb       #64
-goodvalue@          stb       USBITS.MaxPacketSize,s maxpacket
-* The hub will send a 'nak' if there is no change, so
+                    stb       USBITS.MaxPacketSize,s maxpacket
+* The hub will send a NAK if there is no change, so
 * instruct the chip to not do a retry, and instead
-* bubble up the 'error'. Thus, this procedure will return
+* bubble up the NAK. Thus, this procedure will return
 * with carry set if no change in ports.
+* Note this differs from most usage of a set carry (in which it represents an error).
+* Carry set from InTransfer with return of $2A return just means no change
+* so exit cleanly in this scenario.
                     lda       #1
                     sta       USBITS.NakFlag,s    set to allow NAK
                     tfr       s,x
+                    lda       USBHubDataFlag,y
+                    sta       USBITS.DataFlag,s   DATA0/DATA1 flag
                     lbsr      InTransfer
-                    pshs      cc
-                    lda       1+USBITS.DataFlag,s store DATA0/DATA1 flag
-                    sta       USBHubDataFlag,y
-                    puls      cc
+                    bcc       goodxfer@
                     leas      9,s
-                    bcs       error@
-goodxfer@
+                    cmpb      #$2A                Nak means no change
+                    beq       wrapup@
+* Try to recover from a DATA0/DATA1 sync error.
+                    cmpb      #$2B                Handle DATA1 sync errors
+                    beq       syncerror@
+                    cmpb      #$23                Handle DATA0 sync errors
+                    beq       syncerror@
+                    tfr       d,x
+                    ldd       USBHubWMaxPacketSize,y restore stack
+                    leas      d,s
+                    tfr       x,d
+                    comb
+                    bra       finish@
+syncerror@          lda       USBHubDeviceId,y
+                    ldb       USBHubStatusEndpoint,y
+                    lbsr      ClearStall
+                    lbsr      Delay
+                    bra       retry@
+goodxfer@           lda       USBITS.DataFlag,s   store DATA0/DATA1 flag
+                    sta       USBHubDataFlag,y
+                    leas      9,s
 * Parse bitmap here
                     tfr       s,x                 set x to top of stack
-                    clrb                          start with port 0
                     lda       ,x+                 load first byte
-loop0@              rora                          rotate bit 0 to carry
+                    rora                          Ignore Hub power status
+                    ldb       #1                  start with port 1
+loop0@              rora                          next bit to carry
                     bcc       notthisport@        carry clear means no change
                     lbsr      HubProcessPortChange process port if changed
 notthisport@        incb                          go to next bit
@@ -1145,13 +1147,10 @@ notthisport@        incb                          go to next bit
 notbyteboundary@
                     cmpb      USBHubNumPorts,y    compare to number of ports
                     ble       loop0@              keep going for all ports
-                    ldd       USBHubWMaxPacketSize,y restore stack
+                    bra       retry@              loop until got NAK
+wrapup@             ldd       USBHubWMaxPacketSize,y restore stack
                     leas      d,s
-                    clrb
-                    bra       finish@
-error@              ldd       USBHubWMaxPacketSize,y restore stack
-                    leas      d,s
-                    comb
+                    clra
 finish@             puls      x,d,pc
 
 * X is Buffer
@@ -1189,7 +1188,7 @@ error@              puls      x,d,pc
 * Return is carry clear/set if success/error
 SetPortFeature
                     pshs      d,x
-                    lda       #$03                SET FEATURE
+                    lda       #$03                SET FEATURE Table 9-4
                     bra       mergeclear@
 * A is feature selector (USB 2.0 specification table 11-17 on page 421)
 * B is port
@@ -1197,7 +1196,7 @@ SetPortFeature
 * Return is carry clear/set if success/error
 ClearPortFeature
                     pshs      d,x
-                    lda       #$01                CLEAR FEATURE
+                    lda       #$01                CLEAR FEATURE Table 9-4
 mergeclear@         leas      -13,s               merge in from SetPortFeature
                     sta       6,s                 bRequest
                     lda       13,s                restore A to feature
@@ -1223,7 +1222,9 @@ mergeclear@         leas      -13,s               merge in from SetPortFeature
 * In
 *  Y is the Hub Device Table Entry
 *  B is Port #
+*  U is USBMan Memory Address
 * Out
+*  A,B is destroyed
 *  Carry Set if error
 HubResetPort        pshs      y
                     lda       #$04                PORT_FEAT_RESET
@@ -1231,16 +1232,17 @@ HubResetPort        pshs      y
                     bcs       error@
                     leas      -4,s
                     leax      ,s                  x is 4 bytes result
-retry@              lbsr      Delay
+retry@
                     lbsr      HubGetPortStatus
                     bcc       goodxfer@
                     leas      4,s
                     bra       error@
-goodxfer@           lda       #$10                $10 is port_reset done
-                    bita      2,s
-                    beq       retry@              loop until port reset done
+goodxfer@
+                    lda       #$10                $10 is port_reset
+                    bita      ,s
+                    bne       retry@              loop until port reset done
                     leas      4,s
-                    lda       #20
+                    lda       #20                 table 11-17 page 422 usb_20.pdf
                     lbsr      ClearPortFeature
                     bra       finish@
 error@              comb
@@ -1250,6 +1252,7 @@ finish@             puls      x,pc
 * See Table 11-22 on page 431 of the USB 2.0 Specification
 * B is port number
 * Y is hub table entry
+* U is USBMan Memory (needed for AttachDevice)
 HubProcessPortChange
 * Call port status
                     pshs      d,x
@@ -1257,34 +1260,60 @@ HubProcessPortChange
                     leax      ,s                  x is 4 bytes result
                     lbsr      HubGetPortStatus
                     lbcs      error@
-                    ldb       5,s                 reload port number off stack
                     lda       #$01
-                    bita      2,s
+                    bita      2,x
                     lbeq      noportconnectionchange@
+* Ok, we have a connection change, so now we need to wait for debounce.
+* This means wait up to 1500ms, checking every
+* Tick (16.6ms), waiting for 100ms (6 ticks) of consistent results before
+* acting on it.
+* This is found in section 7.1.7.3 of the USB 2.0 spec (page 178).
+* First, set up our counters on the stack
+                    lda       #30                 wait up to 1500 ms (30*50ms)
+                    pshs      a
+                    leas      -1,s
+starttest@          lda       #6                  wait for six 'no change' results
+                    sta       ,s
+* Then Clear Port Feature
+                    lda       #$10                16  C_PORT_CONNECTION
+                    lbsr      ClearPortFeature
+                    bcs       debounceerror@
+* Then wait 50ms to see if there is a change
+looptest@           lbsr      Delay
+* Then reload status into X buffer
+                    lbsr      HubGetPortStatus
+* If port status has NOT changed, then decrement ,s. If 0 then we had enough
+* reports with no change so continue with connection or disconnection event.
+* If it has changed, go back to start of 100ms test.
+                    lda       #$01
+                    bita      2,x
+                    bne       starttest@
+                    dec       ,s
+                    beq       debouncegood@       got to 100ms, keep going
+                    dec       1,s                 error out if timed out
+                    bne       looptest@           go wait and test again
+debounceerror@      leas      2,s
+                    bra       error@
+debouncegood@       leas      2,s
 * Find out if connected or not
-                    bita      ,s
+                    bita      ,x
                     lbeq      portdisconnected@
-* New Device Connected here
-                    bsr       HubResetPort
+* New Hub Connection here
+                    lbsr      HubResetPort
                     bcs       error@
                     lda       USBHubDeviceId,y
                     lbsr      AttachDevice
                     bcs       error@
-                    bra       clearportconnchange@
+                    bra       doneportconnchange@
 portdisconnected@
 * Old Device Disconnected here
                     lda       USBHubDeviceId,y    load hub device no
                     lbsr      DetachDevice
                     bcs       error@
-clearportconnchange@
-* Do a ClearPortFeature(C_PORT_CONNECTION) to clear
-                    ldb       5,s                 reload port number off stack
-                    lda       #$10                16  C_PORT_CONNECTION
-                    lbsr      ClearPortFeature
-                    bcs       error@
+doneportconnchange@
 noportconnectionchange@
                     lda       #$02                C_PORT_ENABLE
-                    bita      2,s
+                    bita      2,x
                     beq       noportenable@
 * This is just saying if the port is enabled or not
 * so don't handle connection/disconnection events here
@@ -1292,8 +1321,9 @@ noportconnectionchange@
                     lda       #17
                     lbsr      ClearPortFeature
                     bcs       error@
-noportenable@       lda       #$04                C_PORT_SUSPEND
-                    bita      2,s
+noportenable@
+                    lda       #$04                C_PORT_SUSPEND
+                    bita      2,x
                     beq       noportsuspend@
 * Just clearing the status, not doing anything else
 * as support for suspending devices is not (yet) implemented in this
@@ -1302,12 +1332,12 @@ noportenable@       lda       #$04                C_PORT_SUSPEND
                     lbsr      ClearPortFeature
                     bcs       error@
 noportsuspend@      lda       #$08                C_PORT_OVER_CURRENT
-                    bita      2,s
+                    bita      2,x
                     beq       noportovercurrent@
 * Current protection is not properly implemented in this driver
 * so if a device is over current, just disable that port
 * Problem: how to inform the user this has been done? Print to screen
-* with D.BtBug ? Maybe have a system call for a userspace app to query
+* with D.BtBug ? Maybe add a system call for a userspace app to query
 * for disabled ports?
                     bita      ,x
                     beq       notovercurrent@
@@ -1353,14 +1383,16 @@ found@
                     lda       USBInterfaceDeviceId,y Device id from intf table
                     sta       USBHubDeviceId,u
                     lda       USBEDBEndpointAddress,x endpoint id from endpoint desc
-                    anda      #$0F
                     sta       USBHubStatusEndpoint,u
                     ldd       USBEDWMaxPacketSize,x wMaxPacketSize from endpoint desc
                     exg       a,b                 make big endian
-                    std       USBHubWMaxPacketSize,u and store
+                    anda      #$07                strip off microframe data (9.6.6 on page 273 of usb 2.0 spec)
+                    cmpd      #64
+                    ble       goodsize@
+                    ldd       #64                 CH376 max 64 byte buffer
+goodsize@           std       USBHubWMaxPacketSize,u and store
 * Get port count and store into Hub Table
 * See 11.24.2 on page 420 of USB 2.0 Spec
-                    pshs      X
                     leas      -21,S
                     lda       #$A0
                     sta       5,S                 bRequestType
@@ -1370,7 +1402,7 @@ found@
                     std       7,S                 wValue
                     ldd       #0
                     std       9,S                 wIndex
-                    ldd       #$0800
+                    lda       #$08
                     std       11,S                wLength
                     leax      5,S
                     stx       USBCTS.SetupPktPtr,S
@@ -1378,32 +1410,50 @@ found@
                     stx       USBCTS.BufferPtr,S
                     lda       USBInterfaceDeviceId,y
                     sta       USBCTS.DeviceId,S
-                    tfr       S,X
+                    tfr       s,x
                     lbsr      ControlTransfer
                     bcc       goodxfer@
                     leas      21,s
-                    puls      X
                     bra       xfrerror@
+goodxfer@
 * See 11.23.21 Hub Descriptor on page 417 of USB 2.0 Spec
-goodxfer@           lda       15,s                port count is at this location
-                    leas      21,s
-                    puls      X
-                    sta       USBHubNumPorts,u    store port count into record
+* for offsets for bNbrPorts and bPwrOn2PwrGod
+                    ldb       13+2,s              port count is at this location
+                    stb       USBHubNumPorts,u    store port count into record
 * Turn power on all ports
-                    tfr       a,b
                     lda       #$08                POWER_FEAT_POWER
-powerloop@          lbsr      SetPortFeature
+poweronloop@
+                    lbsr      SetPortFeature
                     decb
-                    bne       powerloop@
+                    bne       poweronloop@
+* bPwrOn2PwrGood is the time in 2ms intervals until power is good on a port
+* We're going to use Delay, which is 50ms, so we need the ceiling of this
+* number divided by 25. We'll approximate this through multiply by 41, take
+* the top byte, shift down 2 bits...which is 41/1024, which is very close
+* to 1/25 but instead on a binary boundary allowing us to divide by shifting.
+* Finally we increment as a ceiling function.
+* This all works out to bPwrOn2PwrGood*FLOOR(41/1024)+1.
+* It rounds up unnecessarily if exactly a multiple of 50ms,
+* leading to an extra 50ms wait, but close enough for our purposes.
+* Also always do a minimum of 100ms (2 Delays).
+                    lda       13+5,s              bPwrOn2PwrGood
+                    ldb       #41
+                    mul
+                    lsra
+                    lsra
+                    inca
+                    cmpa      #2
+                    bge       powerondelay@
+                    lda       #2
+powerondelay@       lbsr      Delay
+                    deca
+                    bne       powerondelay@
+                    leas      21,s
 * Now we poll the ports for our new hub
 * This might recurse down into another new hub. Fun!
                     tfr       u,y                 move hub entry to y (throw away Y)
                     ldu       6,s                 restore USBManMem pointer
-pollagain@
-                    lbsr      Delay
                     lbsr      PollHubPorts
-                    bcc       pollagain@          poll until no change
-                    andcc     #^Carry             mark carry clear
                     bra       finish@
 xfrerror@           clra
                     ldb       #USBHubRecLength
@@ -1443,34 +1493,4 @@ loop2@              sta       ,y+
                     bra       finish@
 error@              comb
 finish@             puls      y,d,pc
-
-HubDevMatch         fdb       $0000               0 VendorId
-                    fdb       $0000               2 Mask
-                    fdb       $0000               4 ProductId
-                    fdb       $0000               6 Mask
-                    fcb       $09                 8 DeviceClass
-                    fcb       $00                 DeviceSubClass
-                    fcb       $FF                 10 ClassMask
-                    fcb       $FF                 SubClassMask
-                    fcb       $00                 12 DeviceProtocol
-                    fcb       $00                 13 Mask
-                    fcb       $09                 14 InterfaceClass
-                    fcb       $00                 InterfaceSubClass
-                    fcb       $FF                 16 ClassMask
-                    fcb       $FF                 SubClassMask
-                    fcb       $00                 18 InterfaceProtocol
-                    fcb       $FF                 19 Mask
-
-DeviceDesc          fcb       $80                 bmRequestType
-                    fcb       $06                 bRequest
-                    fdb       $0001               wValue
-                    fdb       $0000               wIndex
-                    fdb       $0800               wLength (08 bytes)
-
-ConfigDesc          fcb       $80                 bmRequestType
-                    fcb       $06                 bRequest
-                    fdb       $0002               wValue
-                    fdb       $0000               wIndex
-* commented as not needed. pushed instead by routines
-*               fdb     $0800                wLength (08 bytes)
 
