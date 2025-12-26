@@ -693,11 +693,11 @@ G.MsInit            RMB       2                   set mouse routine vector
 G.MsSig             RMB       1                   mouse signal flag
 G.DefPls            RMB       16                  Default palettes (2 repeats of 8 is default) ($C7)
 g00D7               RMB       9
-* KeyMem was never used. EOU Beta 6 merges KeyDrv back into VTIO, so these are unneeded
-                   ifne      EXTERNKEYDRV
+* Don Barber added back in external keyboard support (for usb keyboards)
+                  IFNE      EXTERNKEYDRV
 G.KeyEnt            RMB       2                   entry to keydrv subroutine module ($E0)
 G.KeyMem            RMB       8                   static memory for keydrv subroutine module
-                   endc
+                  ENDC
 G.JoyEnt            RMB       2                   entry to joydrv subroutine module ($EA)
 G.JoyMem            RMB       8                   static memory for joydrv subroutine module
 G.SndEnt            RMB       2                   entry to snddrv subroutine module ($F4)
