@@ -57,8 +57,13 @@ edition             equ       0
 
                     org       0
 UsbKbd.DeviceId     rmb       1
-UsbKbd.EndpointIn   rmb       1
-UsbKbd.DataFlag     rmb       1
+UsbKbd.EndpointInDataFlag   rmb       1           Bit 7 is Data Flag, rest is Endpoint Id. Do this to pack into 1 byte.
+UsbKbd.Key1
+UsbKbd.Key2
+UsbKbd.Key3
+UsbKbd.Key4
+UsbKbd.Key5
+UsbKbd.Key6
 UsbKbd.MemSize      equ       .
 
                     mod       eom,name,tylg,atrv,entry,size
@@ -141,11 +146,9 @@ ReadKys             pshs      dp
                     lbeq      nokey@
                     tfr       s,x
                     lbsr      KbdGetReport
-                    tfr       d,y
-                    ldu       <D.CCMem            Get VTIO global memory into U
-                    tfr       u,d
-                    tfr       a,dp
+                    ldy       <D.CCMem            Get VTIO global memory into U
                     tfr       y,d
+                    tfr       a,dp
                     bcc       goodreport@
                     cmpb      #$2A                NAK report meaning no change
                     lbne      nokey@              if not a NAK, bail out here
@@ -223,31 +226,31 @@ nextkey@            dec       ,s
                     ldy       <G.CurDev           point X to device's static memory
                     tst       <V.KySnsFlg,y       is key sense on?
                     beq       maincheck@
-                    #puls     cc
                     orcc      #Negative
                     lbra      finish@             if so, bail out here to save time
 * Ok, now do the main loop to check for changed keys and process those
 maincheck@
                     leax      -6,x                back up to beginning of key list
-                    leay      G.2Key1,u
                     clr       <G.KeyFlg
                     lda       #6
                     pshs      a
-changeloop@
-                    lda       ,x+
+processloop@        lda       ,x+
+                    beq       next@               skip blank keys
                     cmpa      <G.LKeyCd
                     bne       notlastkey@
                     inc       <G.KeyFlg
 notlastkey@
-                    cmpa      ,y
-                    beq       nochange@
-                    sta       ,y                  Update to mark this key processed
-                    tsta
-                    bne       foundchange@        If its 0 that means no key pressed
-nochange@
-                    leay      1,y
-                    dec       ,s
-                    bne       changeloop@
+* Look in key history
+                    leay      UsbKbd.Key1,u
+                    ldb       #6
+innercheck@         cmpa      ,y+
+                    beq       next@               found in history
+                    decb
+                    bne       innercheck@
+;                    leas      1,s
+                    bra       foundchange@        not found!
+next@               dec       ,s
+                    bne       processloop@
 * No changes, but check if last pressed key is still held down
 * If so, return that
                     tst       <G.KeyFlg
@@ -255,12 +258,18 @@ nochange@
                     leas      1,s                 get rid of counter
                     bra       nokey@              no keys at all are pressed, return nothing
 repeatkey@
-                    lda       <G.KySame
                     lda       <G.LKeyCd
                     inc       <G.KySame           flag for repeat key handling in vtio
 foundchange@
+* Save new key packet into old key packet
                     leas      1,s                 get rid of counter
                     sta       <G.LKeyCd
+                    ldx       2,s
+                    stx       UsbKbd.Key1,u
+                    ldx       4,s
+                    stx       UsbKbd.Key3,u
+                    ldx       6,s
+                    stx       UsbKbd.Key4,u
 * If here, we found a newly pressed key. Process.
 * At this point, A contains USB keycode of a newly hit key
                     cmpa      #$04
@@ -347,9 +356,11 @@ KbdGetReport        pshs      x,y,u
                     stb       USBITS.MaxPacketSize,s max packet is always 8 for kbd boot protocol
                     stb       USBITS.NakFlag,s    bubble up NAKs, no retry
                     ldd       UsbKbd.DeviceId,u
+                    andb      #$7F                strip data0/data1 flag
                     std       USBITS.DeviceId,s   device and endpoint
-                    lda       UsbKbd.DataFlag,u   data0/data1 flag
-                    sta       USBITS.DataFlag,s
+                    ldb       UsbKbd.EndpointInDataFlag,u
+                    andb      #$80
+                    stb       USBITS.DataFlag,s
                     leax      ,s
                   IFGT    Level-1
                     ldy       <D.USBManSubAddr
@@ -367,7 +378,12 @@ KbdGetReport        pshs      x,y,u
                   ENDC
                     pshs      cc
                     lda       1+USBITS.DataFlag,s
-                    sta       UsbKbd.DataFlag,u   save data0/data1 flag
+                    anda      #$80
+                    pshs      a
+                    lda       UsbKbd.EndpointInDataFlag,u
+                    anda      #$7F
+                    ora       ,s+ 
+                    sta       UsbKbd.EndpointInDataFlag,u   save data0/data1 flag
                     puls      cc
                     leas      9,s
                     bra       finish@
@@ -409,13 +425,8 @@ Init
                   ELSE
                     ldy       >D.USBManSubAddr
                   ENDC
-                    bne       usbmanalready@
-                    ldb       #UsbKbd.MemSize
+                    bne       usbmanexists@
                     pshs      u
-                    clra
-clrloop@            sta       ,u+
-                    decb
-                    bne       clrloop@
                   IFGT    Level-1
                     ldx       <D.Proc
                     pshs      x
@@ -430,9 +441,14 @@ clrloop@            sta       ,u+
                   ENDC
                     bcs       error@
                     jsr       ,y                  call USBMan init routine
-                    puls      u                   restore u
+                    puls      u
                     bcs       finish@
-usbmanalready@
+usbmanexists@
+                    ldd       #UsbKbd.MemSize     also clears a
+                    tfr       u,x
+clrloop@            sta       ,x+
+                    decb
+                    bne       clrloop@
                     leas      -8,s
                     leax      KbdDevMatch,pcr
                     stx       ,s
@@ -455,12 +471,11 @@ finish@             rts
 * Returns Carry Clear if accept
 KbdProbe            pshs      x,y
                     tst       UsbKbd.DeviceId,u
-                    bne       error@
+                    bne       duperror@           ignore a second keyboard
                     lda       USBInterfaceDeviceId,y
                     sta       UsbKbd.DeviceId,u
-                    clr       UsbKbd.DataFlag,u
 * Start looking for endpoint here
-loop1@              lda       1,x                 descriptor type field
+loop1@              lda       USBDescriptorType,x descriptor type field
                     cmpa      #$05                $05 is endpoint descriptor
                     beq       foundendpoint@
                     clra
@@ -469,8 +484,9 @@ loop1@              lda       1,x                 descriptor type field
                     bra       loop1@
 foundendpoint@
 * Record EndpointIn here
-                    lda       2,x
-                    sta       UsbKbd.EndpointIn,u
+                    lda       USBEDBEndpointAddress,x
+                    anda      #$7F
+                    sta       UsbKbd.EndpointInDataFlag,u
 * Set boot protocol
                     leas      -13,s
                     leax      5,s
@@ -480,6 +496,7 @@ foundendpoint@
                     ldd       #$210B
                     std       5,s
                     lda       USBInterfaceNum,y
+                    #lda       UsbKbd.EndpointIn,u
                     sta       9,s
                     ldd       #$0000
                     std       7,s                 a=0=boot protocol
@@ -502,7 +519,7 @@ error@
 clrloop@            sta       ,x+
                     decb
                     bne       clrloop@
-                    comb
+duperror@           comb
 finish@             puls      x,y,pc
 
 KbdDisconnect
