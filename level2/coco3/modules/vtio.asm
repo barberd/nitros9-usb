@@ -172,7 +172,10 @@ Term                ldx       <D.CCMem            get ptr to CC memory
                     bsr       TermSub             Terminate SndDrv
                    IFNE   EXTERNKEYDRV
                     ldx   #(WGlobal+G.KeyEnt)  Point to start of KeyDrv entry/static mem block
+                    ldd   ,x
+                    beq   skipExtKeysTerm@
                     bsr   TermSub      Terminate KeyDrv
+skipExtKeysTerm@
                    ENDC
                     puls      u,x                 Restore regs
 noterm              ldb       #CoTerm             ($0C) branch table offset for terminate
@@ -229,9 +232,11 @@ Init                ldx       <D.CCMem            get ptr to CC mem
                    IFNE       EXTERNKEYDRV
                     leax      <KeyDrv,pcr         point to keyboard driver sub module name
                     bsr       LinkSys             link to it (restores U to D.CCMem)
+                    bcs       nokbdmodule@
                     sty       >G.KeyEnt,u         save the entry point
                     leau      >G.KeyMem,u         point U to keydrv statics
                     jsr       ,y                  call init routine of sub module (K$Init)
+nokbdmodule@
                   ENDC 
 
                     leax      <JoyDrv,pcr         point to joystick driver sub module name
@@ -259,7 +264,7 @@ PerWinInit          ldd       #$0078              Default mouse sample rate (0) 
                     lbra      FindCoMod           go find and init co-module
                
                    IFNE       EXTERNKEYDRV
-KeyDrv   fcs   /KeyDrv/     Name of keyboard driver subroutine module
+KeyDrv              fcs       /KeyDrv/     Name of keyboard driver subroutine module
                    ENDC
 JoyDrv              fcs       /JoyDrv/     Name of joystick driver subroutine module
 SndDrv              fcs       /SndDrv/     Name of sound driver subroutine module
@@ -748,8 +753,9 @@ L0369               equ       *
                     lbsr      FuncKeys            Get status of F1/F2 keys into A
                    IFNE       EXTERNKEYDRV
                     bne       skipExtFuncKeys@
-                    pshs      u
                     ldx       >WGlobal+G.KeyEnt   else get ptr to keydrv
+                    beq       skipExtFuncKeys@
+                    pshs      u
                     leau      >G.KeyMem,u         and ptr to its statics
                     jsr       K$FnKey,x           call into it
                     puls      u
@@ -796,12 +802,18 @@ Normal              lda       <G.KyButt,u         Get keyboard mouse fire button
                     puls      y,x                 Restore regs
                    IFNE       EXTERNKEYDRV
                     bpl       L03C8
-                    pshs      u,y,x                    
+                    pshs      u,y,x
                     ldx       >WGlobal+G.KeyEnt        
+                    beq       skipExtReadKy@
                     leau      >G.KeyMem,u              
                     jsr       K$RdKey,x           call Read Key routine
                     puls      u,y,x
-skipExtReadKy@
+                    bra       doneExtReadKey@
+skipExtReadKy@      puls      u,y,x
+                    clra
+                    ldb       #$FF
+                    andcc     #Negative
+doneExtReadKey@
                    ENDC
                     bpl       L03C8               branch if normal char received
                     clr       <G.LastCh,u         else clear last character var
