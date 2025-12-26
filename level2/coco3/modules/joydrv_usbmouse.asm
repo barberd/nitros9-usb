@@ -136,12 +136,8 @@ Init                lbsr      ClrMem
                     bne       usbmanready@
                     pshs      u
                   IFGT    Level-1
-                  IFNE    H6309
-                    ldw       <D.Proc
-                  ELSE
                     ldx       <D.Proc
                     pshs      x
-                  ENDC
                     ldx       <D.SysPrc
                     stx       <D.Proc
                   ENDC
@@ -149,12 +145,8 @@ Init                lbsr      ClrMem
                     leax      usbmanname,pcr
                     os9       F$Link
                   IFGT    Level-1
-                  IFNE    H6309
-                    stw       <D.Proc
-                  ELSE
                     puls      x
                     stx       <D.Proc
-                  ENDC
                   ENDC
                     bcs       linkfailed@
                     jsr       ,y                  call USBMan init routine
@@ -179,15 +171,15 @@ finish@             rts
 
 * U Memory Location
 * Y Interface table entry
-* X Interface entry in memory
+* X Interface descriptor in memory
 * Returns Carry Clear if accept
 MouseProbe          pshs      x,y
                     tst       M.DeviceId,u
-                    bne       error@              We already have a mouse
+                    bne       duperror@           We already have a mouse
                     lda       USBInterfaceDeviceId,y
                     sta       M.DeviceId,u
 * Start looking for endpoint here
-loop1@              lda       1,x                 descriptor type field
+loop1@              lda       USBDescriptorType,x descriptor type field
                     cmpa      #$05                $05 is endpoint type
                     beq       foundendpoint@
                     clra
@@ -227,7 +219,7 @@ foundendpoint@
 error@
 * Clear out local memory
                     bsr       ClrMem
-                    comb
+duperror@           comb
 finish@             puls      x,y,pc
 
 MouseDisconnect     pshs      d,u
@@ -331,12 +323,8 @@ ReadPkt             pshs      y
 * which can't sleep. But is not necessarily running as system, so USBMan doesn't
 * know that it can't sleep. So the system call for F$Sleep results a very corrupted
 * stack. Instead, just tell USBMan its running as system so it won't even try to sleep.
-                  IFNE    H6309
-                    ldw       <D.Proc             get current process descriptor pointer          
-                  ELSE
                     ldd       <D.Proc             get current process descriptor pointer          
                     pshs      d                   preserve it
-                  ENDC
                     ldd       <D.SysPrc           get system process descriptor pointer
                     std       <D.Proc             save it as current process
                   ELSE
@@ -344,12 +332,8 @@ ReadPkt             pshs      y
                   ENDC
                     jsr       USBInTransfer,y
                   IFGT    Level-1
-                  IFNE    H6309
-                    stw       <D.Proc             restore current process. Clobbers some flags but not carry.
-                  ELSE
                     puls      x
                     stx       <D.Proc             restore current process. Clobbers some flags but not carry.
-                  ENDC
                   ENDC
                     pshs      cc
                     lda       M.EndpointDF,u
