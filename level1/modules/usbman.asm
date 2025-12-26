@@ -81,7 +81,8 @@ DeviceDesc          fcb       $80                 bmRequestType
                     fcb       $06                 bRequest
                     fdb       $0001               wValue
                     fdb       $0000               wIndex
-                    fdb       $4000               wLength (64 bytes)
+*These 2 bytes would normally be included but is replaced by routines
+*                fdb     $1200                wLength (18 bytes)
 
 ConfigDesc          fcb       $80                 bmRequestType
                     fcb       $06                 bRequest
@@ -182,6 +183,8 @@ clrloop@            sta       ,u+
                     sta       CH376_CMDREG
                     lda       CH376_DATAREG
                     lda       >PIA1Base+2         clear latched interrupts
+                    inc       USBNakRetryCache,u
+                    lbsr      SetDefaultNak
                    IFEQ      NOHUBCODE
 * Register built-in Hub Drivers
                     leas      -8,s
@@ -440,10 +443,12 @@ DirectPortReset
                     sta       CH376_CMDREG
                     lda       CH376_DATAREG
                     lda       >PIA1Base+2         clear latched interrupts
+                    puls      cc
                     clrb
                     bra       finish@
-error@              comb
-finish@             puls      cc,d,x,pc
+error@              puls      cc
+                    comb
+finish@             puls      d,x,pc
 
 * DirectConnect comes in from the IRQ Handler
 * Also since this is a connect, and a ch376 only has one port, this has to be
@@ -467,6 +472,8 @@ error@              comb
 * This routine resets a device, assigns it back the same device ID,
 * and sets Configuration 1. It can be used by drivers to reset locked
 * devices, but should never be needed.
+* Note: if this is ever done on a hub, it will break everything downstream
+* from that hub.
 * A is Device ID
 ResetDevice
                     pshs      u,x,d
@@ -484,13 +491,9 @@ findloop@           cmpa      USBDeviceId,x
                     decb
                     bne       findloop@
                     bra       error@
-found@              ldd       USBDeviceHub,x
-                   IFNE      H6309
-                    tstd
-                   ELSE
-                    cmpd      #0
-                   ENDC
+found@
                    IFEQ      NOHUBCODE
+                    ldd       USBDeviceHub,x
                     beq       rootdev@
 * find Hub record in Y
                     pshs      y,b
@@ -514,6 +517,7 @@ hfound@             puls      b
 rootdev@            clra                          talking to device id 0
                     bsr       GetUSBLock
                     lbsr      DirectPortReset
+                    bcs       error@
 cont@
                     lda       #CH376_SET_ADDRESS
                     sta       CH376_CMDREG
@@ -609,20 +613,15 @@ RegisterDriver
                     tfr       x,y
                     leax      USBDriverTable,u
                     ldb       #USBMaxDrivers
-loop@               pshs      b
-                    ldd       USBDriverDevMatchPtr,x
-                   IFNE      H6309
-                    tstd
-                   ELSE
-                    cmpd      #0
-                   ENDC
-                    puls      b
+                    pshs      b
+loop@               ldd       USBDriverDevMatchPtr,x
                     beq       foundslot@
-                    decb
+                    dec       ,s
                     lbeq      error@              Too many drivers in system
                     leax      USBDriverRecLength,x
                     bra       loop@
-foundslot@          ldd       ,y
+foundslot@          leas      1,s
+                    ldd       ,y
                     std       USBDriverDevMatchPtr,x
                     ldd       2,y
                     std       USBDriverMemoryPtr,x
@@ -633,8 +632,8 @@ foundslot@          ldd       ,y
 * Now go through all unclaimed interfaces, and run FindProbeDriver again
                     leay      USBInterfaceTable,u
                     ldb       #USBMaxInterfaces
-loop1@              pshs      b                   store counter
-                    tst       USBInterfaceDeviceId,y is this record populated?
+                    pshs      b
+loop1@              tst       USBInterfaceDeviceId,y is this record populated?
                     beq       skipentry@
                     ldd       USBInterfaceDriverRecord,y check driver record
                     bne       skipentry@          this one is already claimed
@@ -648,7 +647,7 @@ loop1@              pshs      b                   store counter
                     os9       F$SRqMem
                     exg       u,x                 restore u and put mem pointer in X
                     bcc       goodmemreq@
-                    leas      3,s                 remove counter and req size from stack
+                    leas      2,s                 remove req size from stack
                     bra       error@
 goodmemreq@
                     pshs      x                   save mem pointer for allocated buffer
@@ -681,12 +680,12 @@ skipprobe@          tfr       u,x                 save U memory ptr
                     os9       F$SRtMem
                     tfr       x,u                 restore U memory ptr
 skipentry@          leay      USBInterfaceRecLength,y
-                    puls      b
-                    decb
+                    dec       ,s
                     bne       loop1@
-                    clrb
+                    leas      1,s
                     bra       finish@
-error@              comb
+error@              leas      1,s
+                    comb
 finish@             puls      u,y,x,d,pc
 
 * Y is pointer to device record
@@ -734,6 +733,79 @@ finddevloop@        cmpa      USBDeviceId,x       it has to be there unless
                     bra       finddevloop@
 founddev@           rts
 
+* Input: X is buffer to insert descriptor
+*        A is the device ID
+*        B is the wLength for setup packet (should be 18 normally)
+* Output: X buffer is populated
+* Return carry clear/set if success/error
+GetDeviceDescriptor
+                    pshs      d,x,y
+                    tfr       b,a
+                    clrb
+                    pshs      d                   set wLength in setup packet
+                    leay      DeviceDesc+6,pcr
+                    ldb       #6
+loopdesc@           lda       ,-y
+                    pshs      a
+                    decb
+                    bne       loopdesc@
+                    leay      ,s
+                    leas      -5,s
+                    sty       USBCTS.SetupPktPtr,s
+                    stx       USBCTS.BufferPtr,s
+                    lda       13,s
+                    sta       USBCTS.DeviceId,s
+                    tfr       s,x
+                    lbsr      ControlTransfer
+                    leas      13,s
+                    puls      y,x,d,pc
+
+* Input: X is 18 byte buffer to insert descriptor
+*        A is the device ID
+* Output: X buffer is populated, X points at end of descriptor, B is destroyed
+* Note: Unclear on the exact SETUP packet(s) the CH376 uses for this.
+* Windows and Linux asks for wLength 64 bytes while running as device 0
+* before the second reset, then for 18 (bytes after the second reset and
+* setting the address. May need to rewrite this to do it manually
+* if some devices don't work.
+* If doing that, one will need to modify the GetDeviceRec to return a dummy
+* entry for ControlTransfer for device 0 (or hack up ControlTransfer)
+GetDeviceDescriptorOLD
+                    lbsr      GetUSBLock
+                    lda       #CH376_GET_DESCR
+                    sta       CH376_CMDREG
+                    lda       #1
+                    sta       CH376_DATAREG
+                    lbsr      WaitIrqResult
+                    cmpa      #CH376_USB_INT_SUCCESS
+                    lbne      error@
+                    lda       #CH376_RD_USB_DATA0
+                    sta       CH376_CMDREG
+                    ldb       CH376_DATAREG     B now contains num bytes to read
+                    cmpb      #18
+                    bne       error@        device descriptor should be 18 bytes
+                   IFNE      H6309
+                    pshsw
+                    clre
+                    tfr       b,f
+                    ldd       #CH376_DATAREG
+                    pshs      cc
+                    orcc      #IntMasks
+                    tfm       d,x+
+                    puls      cc
+                    pulsw
+                    clrb
+                   ELSE
+readloop@           lda       CH376_DATAREG
+                    sta       ,x+
+                    decb
+                    bne       readloop@
+                   ENDC
+                    bra       finish@
+error@              comb
+finish@             lbsr      FreeUSBLock
+                    rts
+
 * X is Drivers Probe location
 * This function is normally called externally, so does not
 * have the U pointer to the data area coming in
@@ -776,13 +848,15 @@ done@               puls      u,y,d,pc
 
 * Attach a new device, already reset and listening on device id 0
 * Hub and Port in D
+* Y is HubTable entry - only needed if hub attached
 * U is pointer to USBMan Memory
 * Return
 * DeviceId in A
 * B is destroyed
 AttachDevice
-* Find empty slot in DeviceTable
                     pshs      x,y,u
+                    lbsr      Delay3Tk            usb_20.pdf 9.2.6.2 pg 246
+                    lbsr      Delay3Tk            usb_20.pdf 9.2.6.2 pg 246
                     tfr       d,x
 * Find free Device Id
                     lda       #1
@@ -813,8 +887,42 @@ foundslot0@
                     puls      a
                     sta       USBDeviceId,y       store device id in device record
                     stx       USBDeviceHub,y      store hub and port in device record
+* The ordering here might seem odd, but Windows/Linux grabs the Device 
+* Descriptor first (wLength 64 bytes), then resets the device, then gets
+* the Device Descriptor again (this time with expected 18 byte wLength),
+* then sets the address. Then gets the Configuration Descriptor (wLength 9 
+* bytes), then again with exact length, then gets the device strings.
+* Doing it the same way to avoid issues with usb devices that don't 
+* follow standards.
+* Get First Device Descriptor here
+                    leas      -64,s
+                    ldd       #$0040              device 0, 64 byte wLength
+                    tfr       s,x
+                    lbsr      GetDeviceDescriptor
+                    bcs       baddevicedescriptor@
+                    ldb       USBDDBMaxPacketSize0,s load bMaxPacketSize0 here
+                    stb       USBDeviceMaxPacketSize,y store in device record
+* Now reset device again
+                   IFEQ      NOHUBCODE
+                    ldd       USBDeviceHub,y      restore hub,port num
+                    tsta                          test if root port
+                    bne       notroot@
+                   ENDC
+                    lbsr      DirectPortReset
+                    bcs       baddevicedescriptor@
+                    bra       donereset@
+                   IFEQ      NOHUBCODE
+notroot@            pshs      y
+                    ldy       68,s                restore HubTable entry
+                    lbsr      HubResetPort
+                    puls      y
+                    bcs       baddevicedescriptor@
+                   ENDC
+donereset@
+                    lbsr      Delay3Tk            usb_20.pdf 9.2.6.2 pg 246
+                    lbsr      Delay3Tk            usb_20.pdf 9.2.6.2 pg 246
 * Now assign the identified ID to the device
-                    clra                          send to device id 0
+                    clra                          talking to device 0
                     lbsr      GetUSBLock
                     lda       #CH376_SET_ADDRESS
                     sta       CH376_CMDREG
@@ -823,67 +931,38 @@ foundslot0@
                     lbsr      WaitIrqResult
                     lbsr      FreeUSBLock
                     cmpa      #CH376_USB_INT_SUCCESS
-                    lbne      error@
-* Now, get first 64 bytes to get bMaxPacketSize0
-                    lda       #64
-                    sta       USBDeviceMaxPacketSize,y store 64 byte min temporarily because Windows and Linux do it this way so least likely to run into issues with a non-standard device
-                    leax      DeviceDesc,pcr
-                    leas      -69,s
-                    stx       USBCTS.SetupPktPtr,s
-                    leax      5,s
-                    stx       USBCTS.BufferPtr,s
-                    lda       USBDeviceId,y 
-                    sta       USBCTS.DeviceId,s
-                    leax      ,s
-                    lbsr      ControlTransfer
-                    bcc       goodxfer0@
-                    leas      69,s
-                    lbra      error@
-goodxfer0@          ldb       5+USBDDBMaxPacketSize0,s load bMaxPacketSize0 here
-                    leas      69,s
-                    stb       USBDeviceMaxPacketSize,y store in device record
-* Next, get the full record now that we know the bMaxPacketSize0
-                    ldd       #$1200              device descriptors always 18 bytes
-                    pshs      d
-                    leax      DeviceDesc+6,pcr
-                    ldb       #6
-loopdd1@            lda       ,-x
-                    pshs      a
-                    decb
-                    bne       loopdd1@
+                    bne       baddevicedescriptor@
+                    lbsr      Delay1Tk            Needs 2ms delay (usb 2.0 spec 9.2.6.3)
+* Get Device Descriptor a second time, now after reset and address set
+                    lda       USBDeviceId,y       load device id in record
+                    ldb       #18
                     tfr       s,x
-                    leas      -23,s
-                    stx       USBCTS.SetupPktPtr,s
-                    leax      5,s
-                    stx       USBCTS.BufferPtr,s
-                    lda       USBDeviceId,y
-                    sta       USBCTS.DeviceId,s
-                    tfr       s,x
-                    lbsr      ControlTransfer
-                    bcc       goodxfer1@
-                    leas      31,s
+                    lbsr      GetDeviceDescriptor
+                    bcc       gooddevicedescriptor1@
+baddevicedescriptor@
+                    leas      64,s
                     lbra      error@
-goodxfer1@
-                    ldd       5+USBDDIdVendor,s   Vendor ID
+gooddevicedescriptor1@
+                    ldd       USBDDIdVendor,s   Vendor ID
                     exg       a,b
                     std       USBDeviceVendorId,y
-                    ldd       5+USBDDIdProduct,s  Product ID
+                    ldd       USBDDIdProduct,s  Product ID
                     exg       a,b
                     std       USBDeviceProductId,y
-                    ldd       5+USBDDBDeviceClass,s Device Class and SubClass
+                    ldd       USBDDBDeviceClass,s Device Class and SubClass
                     std       USBDeviceClass,y
-                    lda       5+USBDDBDeviceProtocol,s Device Protocol
+                    lda       USBDDBDeviceProtocol,s Device Protocol
                     sta       USBDeviceProtocol,y
 * Load all strings here because some devices lock up if you
 * don't ask for them. Don't do anything with them.
                     lda       USBDeviceId,y
-                    ldb       5+USBDDIManufacturer,s
+                    ldb       USBDDIManufacturer,s
                     lbsr      GetString
-                    ldb       5+USBDDIProduct,s
+                    ldb       USBDDIProduct,s
                     lbsr      GetString
-                    ldb       5+USBDDISerialNumber,s
+                    ldb       USBDDISerialNumber,s
                     lbsr      GetString
-                    leas      31,s
+                    leas      64,s                free up device descriptor
 * Now collect configuration and store interfaces
 * Collect just first 9 bytes to get wTotalLength
 * To allocate enough room for entire collection
@@ -989,18 +1068,14 @@ foundit@            lda       [1,s]               device id on bus
                     lda       USBIDBInterfaceProtocol,x protocol
                     sta       USBInterfaceProtocol,y
                     lbsr      FindProbeDriver
-                    puls      b
-                    decb
+                    dec       ,s
                     beq       doneinterfaces@     now have parsed all interfaces
-                    pshs      b                   if not done, put new counter back on stack
 notinterface@       lda       USBDescriptorLength,x move pointer to next record
-                    beq       doneinterfacesearly@ handle misformed records
+                    beq       doneinterfaces@     handle misformed records
                     leax      a,x
                     bra       findfreeinterfacerecordloop@
-doneinterfacesearly@
-                    leas      1,s
 doneinterfaces@
-                    puls      y                   restore y pointer to DeviceTable record
+                    leas      3,s                 drop counter and DeviceTable pointer
                     puls      u
                     puls      d
                     os9       F$SRtMem
@@ -1030,6 +1105,7 @@ GetString           pshs      d
                     std       11,s
                     leax      ,s
                     lbsr      ControlTransfer
+* Output would go here
                     leas      33,s
 finish@             puls      d,pc
 
@@ -1257,10 +1333,10 @@ bigloop@
                     sta       USBNakRetryCache,u
                     tsta
                     bne       returnnak@
-                    lda       #$8F                default from datasheet
+                    lda       #CH376_DEFAULT_RETRY
                     fcb       $21                 Skip next instruction (BRN)
 returnnak@
-                    clra
+                    clra                          Do not retry on nak or timeout
                     sta       CH376_DATAREG
 skipnak@
                     puls      u
@@ -1291,7 +1367,7 @@ readbuf@            pshs      d
 * check against buffer size
 * if too big, just error out entirely
                     cmpy      ,s
-                    blt       sizeerr@
+                    blo       sizeerr@
                    IFNE      H6309
 * TFM results in 70% time savings compared to an LD loop for 64 bytes.
                     subr      d,y
@@ -1349,7 +1425,7 @@ SetDefaultNak
                     sta       CH376_CMDREG
                     lda       #$25
                     sta       CH376_DATAREG
-                    lda       #$8F                default from datasheet
+                    lda       #CH376_DEFAULT_RETRY
                     sta       CH376_DATAREG
                     clr       USBNakRetryCache,u
 skipnak@            puls      u,a,pc
@@ -1457,6 +1533,7 @@ finish@             leas      1,s                 remove stored transaction attr
 *   D bytes sent/received
 * This function is normally called externally, so does not
 * have the U pointer to the data area coming in
+* TODO: Get MaxPacketSize once instead of 4 times
 ControlTransfer
                     pshs      u
                     lda       USBCTS.DeviceId,x   load device id
@@ -1514,12 +1591,15 @@ loop0@              lda       ,u+                          6/5 \
                     std       USBOTS.BufferLength,s store size
                     ldd       USBCTS.BufferPtr,x
                     std       USBOTS.BufferPtr,s
-                    lda       USBCTS.DeviceId,x
                     clrb
+                    lda       USBCTS.DeviceId,x
                     std       USBOTS.DeviceId,s
-                    lbsr      GetDeviceRec
+                    bne       knowndevice0@
+                    ldb       #64
+                    bra       donepacketsize0@
+knowndevice0@       lbsr      GetDeviceRec
                     ldb       USBDeviceMaxPacketSize,x
-                    lda       #$40
+donepacketsize0@    lda       #$40
                     std       USBOTS.DataFlag,s
                     leax      ,s
                     lbsr      OutTransfer
@@ -1537,13 +1617,16 @@ h2dnodata@
                    ENDC
                     std       USBITS.BufferPtr,s
                     std       USBITS.BufferLength,s
-                    lda       USBCTS.DeviceId,x
                     clrb                          endpoint is 0
-                    std       USBITS.DeviceId,s
                     stb       USBITS.NakFlag,s    NAK behavior default
-                    lbsr      GetDeviceRec
-                    lda       #$80
+                    lda       USBCTS.DeviceId,x
+                    std       USBITS.DeviceId,s
+                    bne       knowndevice1@
+                    ldb       #64
+                    bra       donepacketsize1@
+knowndevice1@       lbsr      GetDeviceRec
                     ldb       USBDeviceMaxPacketSize,x
+donepacketsize1@    lda       #$80
                     std       USBITS.DataFlag,s
                     leax      ,s
                     lbsr      InTransfer
@@ -1569,13 +1652,16 @@ dev2host@
                     std       USBITS.BufferLength,s store buffer length
                     ldd       USBCTS.BufferPtr,x
                     std       USBITS.BufferPtr,s  pointer to buffer
-                    lda       USBCTS.DeviceId,x
                     clrb                          endpoint is 0
-                    std       USBITS.DeviceId,s   device and endpoint
                     stb       USBITS.NakFlag,s    nak behavior default
-                    lbsr      GetDeviceRec
+                    lda       USBCTS.DeviceId,x
+                    std       USBITS.DeviceId,s   device and endpoint
+                    bne       knowndevice2@
+                    ldb       #64
+                    bra       donepacketsize2@
+knowndevice2@       lbsr      GetDeviceRec
                     ldb       USBDeviceMaxPacketSize,x
-                    lda       #$80
+donepacketsize2@    lda       #$80
                     std       USBITS.DataFlag,s   data0/data1 flag
                     leax      ,s
                     lbsr      InTransfer
@@ -1593,12 +1679,15 @@ d2hnodata@
                    ENDC
                     std       USBOTS.BufferPtr,s
                     std       USBOTS.BufferLength,s
-                    lda       USBCTS.DeviceId,x
                     clrb                          endpoint is 0
+                    lda       USBCTS.DeviceId,x
                     std       USBOTS.DeviceId,s
-                    lbsr      GetDeviceRec
+                    bne       knowndevice3@ 
+                    ldb       #64
+                    bra       donepacketsize3@
+knowndevice3@       lbsr      GetDeviceRec
                     ldb       USBDeviceMaxPacketSize,x
-                    lda       #$40
+donepacketsize3@    lda       #$40
                     std       USBOTS.DataFlag,s
                     leax      ,s
                     lbsr      OutTransfer
@@ -1607,8 +1696,7 @@ d2hnodata@
                     bcc       finish@
 error@              orcc      #Carry              set carry
                     puls      u,pc
-finish@
-                    andcc     #^Carry
+finish@             andcc     #^Carry
                     puls      u,pc
 
                    IFEQ      NOHUBCODE
@@ -1639,8 +1727,10 @@ PollHubPorts
                     pshs      x,d
 * Should probably add a check here that allocating this won't overflow
 * the stack, but most hubs only take 1 or 2 bytes as each port is one bit
-                   IFNE      H6309
                     ldd      USBHubWMaxPacketSize,y make room on stack
+                    cmpd     #16                  127 port is theoretical max
+                    bhi      finish@              skip if malicious entry
+                   IFNE      H6309
                     negd
                     addr      d,s
                    ELSE
@@ -1814,12 +1904,12 @@ retry@
                     bra       error@
 goodxfer@          
                    IFNE      H6309
-                    tim       #$10;,s
+                    tim       #$10;2,s
                    ELSE
-                    lda       #$10                $10 is port_reset
-                    bita      ,s
+                    lda       #$10                $10 is c_port_reset
+                    bita      2,s
                    ENDC
-                    bne       retry@              loop until port reset done
+                    beq       retry@              loop until port reset done
                     leas      4,s
                     lda       #20                 table 11-17 page 422 usb_20.pdf
                     lbsr      ClearPortFeature
@@ -1890,6 +1980,8 @@ debouncegood@       leas      2,s
                    ENDC
                     lbeq      portdisconnected@
 * New Hub Connection here
+                    lda       #22                 PORT_FEAT_INDICATOR
+                    lbsr      SetPortFeature
                     lbsr      HubResetPort
                     bcs       error@
                     lda       USBHubDeviceId,y
@@ -1898,6 +1990,8 @@ debouncegood@       leas      2,s
                     bra       doneportconnchange@
 portdisconnected@
 * Old Device Disconnected here
+                    lda       #22                 PORT_FEAT_INDICATOR
+                    lbsr      ClearPortFeature
                     lda       USBHubDeviceId,y    load hub device no
                     lbsr      DetachDevice
                     bcs       error@
@@ -1976,7 +2070,7 @@ loop1@              tst       USBHubDeviceId,u
                     lbeq      error@              reach max hubs in system
                     leau      USBHubRecLength,u
                     bra       loop1@
-found@              
+found@
 * U now contains Hub record entry
 * This records the packet size for the port change endpoint request
                     lda       USBInterfaceDeviceId,y Device id from intf table
