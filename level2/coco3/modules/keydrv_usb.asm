@@ -58,12 +58,12 @@ edition             equ       0
                     org       0
 UsbKbd.DeviceId     rmb       1
 UsbKbd.EndpointInDataFlag   rmb       1           Bit 7 is Data Flag, rest is Endpoint Id. Do this to pack into 1 byte.
-UsbKbd.Key1
-UsbKbd.Key2
-UsbKbd.Key3
-UsbKbd.Key4
-UsbKbd.Key5
-UsbKbd.Key6
+UsbKbd.Key1         rmb       1
+UsbKbd.Key2         rmb       1
+UsbKbd.Key3         rmb       1
+UsbKbd.Key4         rmb       1
+UsbKbd.Key5         rmb       1
+UsbKbd.Key6         rmb       1
 UsbKbd.MemSize      equ       .
 
                     mod       eom,name,tylg,atrv,entry,size
@@ -151,11 +151,20 @@ ReadKys             pshs      dp
                     tfr       a,dp
                     bcc       goodreport@
                     cmpb      #$2A                NAK report meaning no change
-                    lbne      nokey@              if not a NAK, bail out here
+                    bne       usberror@           if not a NAK, bail out here
+                    ldx       UsbKbd.Key1,u       if NAK, copy old report
+                    stx       2,s
+                    ldx       UsbKbd.Key3,u
+                    stx       4,s
+                    ldx       UsbKbd.Key5,u
+                    stx       6,s
                     tst       <G.LKeyCd           if last key was null then report no key
                     lbeq      nokey@
                     leas      -1,s                set up stack to work with repeatkey@
                     lbra      repeatkey@          $2A is legit repeat so treat like repeat key
+usberror@           clra
+                    ldb       #$FF
+                    lbra      exit@
 goodreport@
                   IFNE    H6309
                     clrd
@@ -261,15 +270,8 @@ repeatkey@
                     lda       <G.LKeyCd
                     inc       <G.KySame           flag for repeat key handling in vtio
 foundchange@
-* Save new key packet into old key packet
                     leas      1,s                 get rid of counter
                     sta       <G.LKeyCd
-                    ldx       2,s
-                    stx       UsbKbd.Key1,u
-                    ldx       4,s
-                    stx       UsbKbd.Key3,u
-                    ldx       6,s
-                    stx       UsbKbd.Key4,u
 * If here, we found a newly pressed key. Process.
 * At this point, A contains USB keycode of a newly hit key
                     cmpa      #$04
@@ -320,7 +322,6 @@ nokey@              clra
 keeplkey@
                     sta       <G.CapLok
                     ldb       #$FF
-                    andcc     #Negative
                     bra       finish@
 wrapup@             ldb       <G.AltDwn
                     beq       wrapend@
@@ -331,7 +332,13 @@ wrapup@             ldb       <G.AltDwn
                     ora       #$20                convert capitals to lower case
 doalt@              ora       #$80
 wrapend@            andcc     #^Negative
-finish@             leas      8,s
+finish@             ldx       2,s                 Save new key packet into old key packet
+                    stx       UsbKbd.Key1,u
+                    ldx       4,s
+                    stx       UsbKbd.Key3,u
+                    ldx       6,s
+                    stx       UsbKbd.Key5,u
+exit@               leas      8,s
                     puls      dp
                     rts
 
