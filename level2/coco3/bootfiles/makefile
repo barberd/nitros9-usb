@@ -39,6 +39,12 @@ VTIO_COGRF_80 = $(MD)/vtio.dr \
 		$(MD)/term_win80.dt \
 		$(MD)/w.dw $(MD)/w1.dw $(MD)/w2.dw $(MD)/w3.dw $(MD)/w4.dw \
 		$(MD)/w5.dw $(MD)/w6.dw $(MD)/w7.dw
+VTIO_COGRF_80_EXTKEYDRV_NOJOY = $(MD)/vtio-extkeydrv.dr \
+		$(MD)/snddrv_cc3.sb \
+		$(MD)/cogrf.io \
+		$(MD)/term_win80.dt \
+		$(MD)/w.dw $(MD)/w1.dw $(MD)/w2.dw $(MD)/w3.dw $(MD)/w4.dw \
+		$(MD)/w5.dw $(MD)/w6.dw $(MD)/w7.dw
 VTIO_COWIN_40 = $(MD)/vtio.dr \
 		$(MD)/joydrv_joy.sb $(MD)/snddrv_cc3.sb \
 		$(MD)/cowin.io \
@@ -449,7 +455,7 @@ BOOTFILE_USBMSD	= $(MD)/krnp2 $(MD)/ioman $(MD)/init \
 		$(MD)/ddu0_usbmsd.dd \
 		$(MD)/u0_usbmsd.dd \
 		$(MD)/u1_usbmsd.dd \
-                $(VTIO_COWIN_80) \
+                $(VTIO_COGRF_80) \
 		$(MD)/w8.dw $(MD)/w9.dw $(MD)/w10.dw $(MD)/w11.dw $(MD)/w12.dw $(MD)/w13.dw $(MD)/w14.dw $(MD)/w15.dw \
 		$(MD)/vrn.dr \
 		$(MD)/vi.dd \
@@ -464,22 +470,24 @@ BOOTFILE_USBMSD_USBKBMOUSE = $(MD)/krnp2 $(MD)/ioman $(MD)/init \
 		$(MD)/rbf.mn \
                 $(FLOPPY_40D) \
 		$(MD)/scf.mn \
-		$(RBCOCOSDC) \
+		$(MD)/rbsuper.dr \
 		$(MD)/usbman \
 		$(MD)/llusbmsd.dr \
 		$(MD)/ddu0_usbmsd.dd \
 		$(MD)/u0_usbmsd.dd \
 		$(MD)/u1_usbmsd.dd \
-                $(VTIO_COWIN_80_EXTKEYDRV_NOJOY) \
-		$(MD)/w8.dw $(MD)/w9.dw $(MD)/w10.dw $(MD)/w11.dw $(MD)/w12.dw $(MD)/w13.dw $(MD)/w14.dw $(MD)/w15.dw \
 		$(MD)/keydrv_usb.sb \
 		$(MD)/joydrv_usbmouse.sb \
+		$(VTIO_COGRF_80_EXTKEYDRV_NOJOY) \
+		$(MD)/w8.dw $(MD)/w9.dw $(MD)/w10.dw $(MD)/w11.dw $(MD)/w12.dw $(MD)/w13.dw $(MD)/w14.dw $(MD)/w15.dw \
 		$(MD)/vrn.dr \
 		$(MD)/vi.dd \
 		$(MD)/ftdd.dd \
 		$(PIPE) \
 		$(CLOCK60HZ) \
 		$(USBPRINTER)
+		#$(RBCOCOSDC) \
+		#$(MD)/w8.dw $(MD)/w9.dw $(MD)/w10.dw $(MD)/w11.dw $(MD)/w12.dw $(MD)/w13.dw $(MD)/w14.dw $(MD)/w15.dw \
 
 BOOTFILE_IDE	= $(MD)/krnp2 $(MD)/ioman $(MD)/init \
 		$(MD)/rbf.mn \
