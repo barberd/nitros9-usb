@@ -143,7 +143,7 @@ entry               equ       *
 ReadKys             pshs      dp
                     leas      -8,s
                     tst       UsbKbd.DeviceId,u
-                    lbeq      nokey@
+                    beq       usberror@
                     tfr       s,x
                     lbsr      KbdGetReport
                     ldy       <D.CCMem            Get VTIO global memory into U
@@ -163,7 +163,7 @@ ReadKys             pshs      dp
                     leas      -1,s                set up stack to work with repeatkey@
                     lbra      repeatkey@          $2A is legit repeat so treat like repeat key
 usberror@           clra
-                    orcc      #Negative
+                    coma
                     lbra      exit@
 goodreport@
                   IFNE    H6309
