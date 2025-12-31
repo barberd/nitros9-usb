@@ -163,7 +163,7 @@ ReadKys             pshs      dp
                     leas      -1,s                set up stack to work with repeatkey@
                     lbra      repeatkey@          $2A is legit repeat so treat like repeat key
 usberror@           clra
-                    ldb       #$FF
+                    orcc      #Negative
                     lbra      exit@
 goodreport@
                   IFNE    H6309
@@ -321,7 +321,7 @@ nokey@              clra
                     sta       <G.LKeyCd
 keeplkey@
                     sta       <G.CapLok
-                    ldb       #$FF
+                    orcc      #Negative
                     bra       finish@
 wrapup@             ldb       <G.AltDwn
                     beq       wrapend@
